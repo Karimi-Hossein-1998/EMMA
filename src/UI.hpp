@@ -14,7 +14,7 @@ struct AppFonts
 	ImFont* bonanova = nullptr;
 	ImFont* brawler = nullptr;
 	ImFont* clearsans = nullptr;
-};
+}g_FONTs;
 
 inline void ApplyCustomStyle()
 {
@@ -114,7 +114,7 @@ inline void ApplyCustomStyle()
     colors[ImGuiCol_ModalWindowDimBg]       = ImVec4(0.80f, 0.80f, 0.80f, 0.35f);
 }
 
-inline void initUI(bool darkTheme, AppFonts& g_FONTs)
+inline void initUI(bool darkTheme)
 {
     rlImGuiBeginInitImGui();
     ImGuiIO& io = ImGui::GetIO();

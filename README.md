@@ -6,3 +6,12 @@ This project aims to create a **_G_**_raphical_ **_U_**_ser_ **_I_**_nterface_ f
 + Added *Style Editor* (from *ImGui*).
 + Added Model Picker. (*General Kuramoto Variation*,*Kuramoto Variation (using Sparse adjacency)*, *Special Kuramoto Variant (Without adjacency)*).
 + Added Initial Value Picker. (For *Kuramoto* models, two initial arrays are needed. Initial phases, and intrinsic frequencies.), (The two *Kuramoto* variants need an adjacency matrix.)
++ Added Network Structure Picker. (For *Kuramoto* models).
+
+## TODO
+
++ Add Solver Picker.
++ Add Plotting.
++ Add Saving to Files.
++ Add Image and GIF Save Options.
++ Add running Simulations in Loops, Forward-Backward Loops, and Loop inside Loops.

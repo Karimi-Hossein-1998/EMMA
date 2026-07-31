@@ -13,7 +13,7 @@ int main()
     SetTargetFPS(60);
 
     // rlImGuiSetup(true);
-    initUI(true,AppState::g_FONTs);
+    initUI(true);
 
 
     while(!WindowShouldClose())

@@ -251,4 +251,43 @@ inline dVec  identical_modules(
     }
     return result;
 }
+
+inline dVec modules(
+    size_t               N_per_module,
+    size_t               num_modules,
+    const std::string&   dist_type,
+    double               a,
+    double               b,
+    unsigned             seed,
+    bool                 identical
+)
+{
+    if (N_per_module == 0)
+    {
+        throw std::invalid_argument("[identical_modules] N_per_module (nodes per module) cannot be zero.");
+    }
+    if (num_modules == 0)
+    {
+        throw std::invalid_argument("[identical_modules] num_modules cannot be zero.");
+    }
+    dVec results(0.0,N_per_module*num_modules);
+    if (identical)
+    {
+    	results = identical_modules(N_per_module, num_modules, dist_type, a, b, seed);
+    }
+    else
+    {
+        dVec subResults(0.0,N_per_module);
+		for (size_t mOdule=0; mOdule<num_modules; ++mOdule)
+        {
+            seed += mOdule;
+			subResults = module_by_condition(N_per_module,dist_type,a,b,seed);
+            for (size_t i=0; i<N_per_module; ++i)
+            {
+                results[i+mOdule*N_per_module]=subResults[i];
+            }
+        }
+    }
+	return results;
+}
 } // End namespace MathEngine
