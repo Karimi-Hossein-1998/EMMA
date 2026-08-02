@@ -40,13 +40,13 @@ inline std::tuple<dMatrix, dMatrix, dMatrix> OA_order(
         order[i][3*num_modules]     = sum_re;
         order[i][3*num_modules+1]   = sum_im;
         order[i][3*num_modules+2]   = std::sqrt(dummy_order_sqr);
-        order[i][3*num_modules+3]   = results.time_points[i];
+        order[i][3*num_modules+3]   = results.timePoints[i];
 
         magnitudes[i][num_modules]   = order[i][3*num_modules+2];
         magnitudes[i][num_modules+1] = order[i][3*num_modules+3];
  
         order_sqr[i][num_modules]   = dummy_order_sqr;
-        order_sqr[i][num_modules+1] = results.time_points[i];
+        order_sqr[i][num_modules+1] = results.timePoints[i];
     }
     return {magnitudes, order_sqr, order};
 }

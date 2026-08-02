@@ -6,7 +6,7 @@
 SolverResults heun_euler_solver(const SolverParameters& Params)
 {
     auto deriv = Params.derivative;
-    auto y     = Params.initial_conditions;
+    auto y     = Params.initialConditions;
     auto t     = Params.t0;
     auto t1    = Params.t1;
     auto dt    = Params.dt;
@@ -21,8 +21,8 @@ SolverResults heun_euler_solver(const SolverParameters& Params)
     dMatrix      Errors_History;
     dMatrix      Steps_History;
     wVec Failed_Trials;
-    dVec        Error_Attempt(Params.max_trial, 0.0);
-    dVec        Step_Attempt(Params.max_trial, 0.0);
+    dVec        Error_Attempt(Params.maxTrial, 0.0);
+    dVec        Step_Attempt(Params.maxTrial, 0.0);
 
     auto y_temp = y;
     auto y_heun = y;
@@ -30,7 +30,7 @@ SolverResults heun_euler_solver(const SolverParameters& Params)
     auto k1     = y;
     auto k2     = y;
     // Case 1: No error estimation - simple Euler
-    if (!Params.error_estimate)
+    if (!Params.errorEstimate)
     {
         while (t < t1)
         {
@@ -44,7 +44,7 @@ SolverResults heun_euler_solver(const SolverParameters& Params)
         }
     }
     // Case 2: Error estimation without variable steps
-    else if (!Params.variable_steps)
+    else if (!Params.variableSteps)
     {
         y_old        = y;
         y_heun       = y_old;
@@ -88,7 +88,7 @@ SolverResults heun_euler_solver(const SolverParameters& Params)
             double current_dt    = dt;
             size_t trials        = 0;
 
-            while (!step_accepted && trials < Params.max_trial)
+            while (!step_accepted && trials < Params.maxTrial)
             {
                 y            = y_old;  // Reset to previous state
                 y_heun       = y_old;
@@ -127,7 +127,7 @@ SolverResults heun_euler_solver(const SolverParameters& Params)
                 dt = new_dt;
             }
 
-            if (Params.attempts_history)
+            if (Params.attemptsHistory)
             {
                 Errors_History.push_back(Error_Attempt);
                 Steps_History.push_back(Step_Attempt);
@@ -144,18 +144,18 @@ SolverResults heun_euler_solver(const SolverParameters& Params)
 
     SolverResults Results;
     Results.solution = result;
-    Results.time_points = Times;
-    if (Params.error_estimate)
+    Results.timePoints = Times;
+    if (Params.errorEstimate)
     {
         Results.errors = Errors;
-        if (Params.variable_steps)
+        if (Params.variableSteps)
         {
-            Results.step_sizes = Steps;
-            if (Params.attempts_history)
+            Results.stepSizes = Steps;
+            if (Params.attemptsHistory)
             {
-                Results.errors_history = Errors_History;
-                Results.steps_history = Steps_History;
-                Results.failed_trials = Failed_Trials;
+                Results.errorsHistory = Errors_History;
+                Results.stepsHistory = Steps_History;
+                Results.failedTrials = Failed_Trials;
             }
         }
     }
@@ -172,7 +172,7 @@ auto rk12_solver(Args&&... args) -> decltype(rk4_solver(std::forward<Args>(args)
 SolverResults bogacki_shampine_solver(const SolverParameters& Params)
 {
     auto deriv = Params.derivative;
-    auto y     = Params.initial_conditions;
+    auto y     = Params.initialConditions;
     auto t     = Params.t0;
     auto t1    = Params.t1;
     auto dt    = Params.dt;
@@ -187,8 +187,8 @@ SolverResults bogacki_shampine_solver(const SolverParameters& Params)
     dMatrix      Errors_History;
     dMatrix      Steps_History;
     wVec Failed_Trials;
-    dVec        Error_Attempt(Params.max_trial, 0.0);
-    dVec        Step_Attempt(Params.max_trial, 0.0);
+    dVec        Error_Attempt(Params.maxTrial, 0.0);
+    dVec        Step_Attempt(Params.maxTrial, 0.0);
 
     auto y_temp = y;
     auto y_rk3  = y;
@@ -197,7 +197,7 @@ SolverResults bogacki_shampine_solver(const SolverParameters& Params)
     auto k2     = y;
     auto k3     = y;
     // Case 1: No error estimation - simple RK2
-    if (!Params.error_estimate)
+    if (!Params.errorEstimate)
     {
         auto dt_half = dt * 0.5;
         while (t < t1)
@@ -217,7 +217,7 @@ SolverResults bogacki_shampine_solver(const SolverParameters& Params)
         }
     }
     // Case 2: Error estimation without variable steps
-    else if (!Params.variable_steps)
+    else if (!Params.variableSteps)
     {
         y_rk3         = y;
         auto dt_half  = dt * 0.5; 
@@ -322,7 +322,7 @@ SolverResults bogacki_shampine_solver(const SolverParameters& Params)
                 dt = new_dt;
             }
 
-            if (Params.attempts_history)
+            if (Params.attemptsHistory)
             {
                 Errors_History.push_back(Error_Attempt);
                 Steps_History.push_back(Step_Attempt);
@@ -339,18 +339,18 @@ SolverResults bogacki_shampine_solver(const SolverParameters& Params)
 
     SolverResults Results;
     Results.solution = result;
-    Results.time_points = Times;
-    if (Params.error_estimate)
+    Results.timePoints = Times;
+    if (Params.errorEstimate)
     {
         Results.errors = Errors;
-        if (Params.variable_steps)
+        if (Params.variableSteps)
         {
-            Results.step_sizes = Steps;
-            if (Params.attempts_history)
+            Results.stepSizes = Steps;
+            if (Params.attemptsHistory)
             {
-                Results.errors_history = Errors_History;
-                Results.steps_history = Steps_History;
-                Results.failed_trials = Failed_Trials;
+                Results.errorsHistory = Errors_History;
+                Results.stepsHistory = Steps_History;
+                Results.failedTrials = Failed_Trials;
             }
         }
     }
@@ -367,7 +367,7 @@ auto rk23_solver(Args&&... args) -> decltype(rk4_solver(std::forward<Args>(args)
 SolverResults fehlberg34_solver(const SolverParameters& Params)
 {
     auto deriv = Params.derivative;
-    auto y     = Params.initial_conditions;
+    auto y     = Params.initialConditions;
     auto t     = Params.t0;
     auto t1    = Params.t1;
     auto dt    = Params.dt;
@@ -382,8 +382,8 @@ SolverResults fehlberg34_solver(const SolverParameters& Params)
     dMatrix      Errors_History;
     dMatrix      Steps_History;
     wVec Failed_Trials;
-    dVec        Error_Attempt(Params.max_trial, 0.0);
-    dVec        Step_Attempt(Params.max_trial, 0.0);
+    dVec        Error_Attempt(Params.maxTrial, 0.0);
+    dVec        Step_Attempt(Params.maxTrial, 0.0);
 
     auto y_temp = y;
     auto y_rk4  = y;
@@ -393,7 +393,7 @@ SolverResults fehlberg34_solver(const SolverParameters& Params)
     auto k3     = y;
     auto k4     = y;
     // Case 1: No error estimation - simple RK3
-    if (!Params.error_estimate)
+    if (!Params.errorEstimate)
     {
         auto dt_half = dt * 0.5;
         auto dt_3_4  = dt * 0.75;
@@ -422,7 +422,7 @@ SolverResults fehlberg34_solver(const SolverParameters& Params)
         }
     }
     // Case 2: Error estimation without variable steps
-    else if (!Params.variable_steps)
+    else if (!Params.variableSteps)
     {
         auto dt_half  = dt * 0.5;
         auto dt_3_4   = dt * 0.75;
@@ -538,7 +538,7 @@ SolverResults fehlberg34_solver(const SolverParameters& Params)
                 dt = new_dt;
             }
 
-            if (Params.attempts_history)
+            if (Params.attemptsHistory)
             {
                 Errors_History.push_back(Error_Attempt);
                 Steps_History.push_back(Step_Attempt);
@@ -555,18 +555,18 @@ SolverResults fehlberg34_solver(const SolverParameters& Params)
 
     SolverResults Results;
     Results.solution = result;
-    Results.time_points = Times;
-    if (Params.error_estimate)
+    Results.timePoints = Times;
+    if (Params.errorEstimate)
     {
         Results.errors = Errors;
-        if (Params.variable_steps)
+        if (Params.variableSteps)
         {
-            Results.step_sizes = Steps;
-            if (Params.attempts_history)
+            Results.stepSizes = Steps;
+            if (Params.attemptsHistory)
             {
-                Results.errors_history = Errors_History;
-                Results.steps_history = Steps_History;
-                Results.failed_trials = Failed_Trials;
+                Results.errorsHistory = Errors_History;
+                Results.stepsHistory = Steps_History;
+                Results.failedTrials = Failed_Trials;
             }
         }
     }
@@ -583,7 +583,7 @@ auto rk34_solver(Args&&... args) -> decltype(rk4_solver(std::forward<Args>(args)
 SolverResults dormand_prince_solver(const SolverParameters& Params)
 {
     auto deriv = Params.derivative;
-    auto y     = Params.initial_conditions;
+    auto y     = Params.initialConditions;
     auto t     = Params.t0;
     auto t1    = Params.t1;
     auto dt    = Params.dt;
@@ -598,8 +598,8 @@ SolverResults dormand_prince_solver(const SolverParameters& Params)
     dMatrix      Errors_History;
     dMatrix      Steps_History;
     wVec Failed_Trials;
-    dVec        Error_Attempt(Params.max_trial, 0.0);
-    dVec        Step_Attempt(Params.max_trial, 0.0);
+    dVec        Error_Attempt(Params.maxTrial, 0.0);
+    dVec        Step_Attempt(Params.maxTrial, 0.0);
 
     auto y_temp = y;
     auto y_rk5  = y;
@@ -612,7 +612,7 @@ SolverResults dormand_prince_solver(const SolverParameters& Params)
     auto k6     = y;
     auto k7     = y;
     // Case 1: No error estimation - simple RK4
-    if (!Params.error_estimate)
+    if (!Params.errorEstimate)
     {
         auto dt_half  = dt * 0.5;
         auto dt_third = dt / 3.0;
@@ -644,7 +644,7 @@ SolverResults dormand_prince_solver(const SolverParameters& Params)
         }
     }
     // Case 2: Error estimation without variable steps
-    else if (!Params.variable_steps)
+    else if (!Params.variableSteps)
     {
         auto dt_15     = dt / 5.0;
         auto dt_310    = dt * 0.3;
@@ -842,7 +842,7 @@ SolverResults dormand_prince_solver(const SolverParameters& Params)
                 dt = new_dt;
             }
 
-            if (Params.attempts_history)
+            if (Params.attemptsHistory)
             {
                 Errors_History.push_back(Error_Attempt);
                 Steps_History.push_back(Step_Attempt);
@@ -859,18 +859,18 @@ SolverResults dormand_prince_solver(const SolverParameters& Params)
 
     SolverResults Results;
     Results.solution = result;
-    Results.time_points = Times;
-    if (Params.error_estimate)
+    Results.timePoints = Times;
+    if (Params.errorEstimate)
     {
         Results.errors = Errors;
-        if (Params.variable_steps)
+        if (Params.variableSteps)
         {
-            Results.step_sizes = Steps;
-            if (Params.attempts_history)
+            Results.stepSizes = Steps;
+            if (Params.attemptsHistory)
             {
-                Results.errors_history = Errors_History;
-                Results.steps_history = Steps_History;
-                Results.failed_trials = Failed_Trials;
+                Results.errorsHistory = Errors_History;
+                Results.stepsHistory = Steps_History;
+                Results.failedTrials = Failed_Trials;
             }
         }
     }

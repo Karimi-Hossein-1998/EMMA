@@ -7,7 +7,7 @@ double estimate_error(const dVec& y, const dVec& y_ref, const SolverParameters& 
     double       error   = 0.0;
     const double epsilon = std::max(1e-15, Params.absolute_tol);
     double       denom   = epsilon;
-    if (Params.weighted_error)
+    if (Params.weightedError)
     {
         // Weighted component-wise error
         for (size_t i = 0; i < y.size(); ++i)
@@ -18,7 +18,7 @@ double estimate_error(const dVec& y, const dVec& y_ref, const SolverParameters& 
             error = std::max(error, diff / denom);
         }
     }
-    else if (Params.norm_error)
+    else if (Params.normError)
     {
         // L2 norm-based error
         double norm_diff = 0.0;
@@ -49,17 +49,17 @@ double estimate_error(const dVec& y, const dVec& y_ref, const SolverParameters& 
 // Helper function for step size adjustment
 double adjust_step_size(double current_dt, double error, const SolverParameters& Params, size_t p)
 {
-    if (error > Params.local_tol && current_dt > Params.min_dt)
+    if (error > Params.localTol && current_dt > Params.minDt)
     {
-        return std::max(std::min(current_dt * Params.decrease_factor * std::pow(Params.local_tol / error, 1.0 / (p + 1.0)), 
-                                Params.max_dt), 
-                       Params.min_dt);
+        return std::max(std::min(current_dt * Params.decreaseFactor * std::pow(Params.localTol / error, 1.0 / (p + 1.0)),
+                                Params.maxDt),
+                       Params.minDt);
     }
-    else if (error < Params.local_tol * Params.local_tol_error_ratio || current_dt <= Params.min_dt)
+    else if (error < Params.localTol * Params.localTolErrorRatio || current_dt <= Params.minDt)
     {
-        return std::max(std::min(current_dt * Params.increase_factor * std::pow(Params.local_tol / error, 1.0 / (p + 1.0)), 
-                                Params.max_dt), 
-                       Params.min_dt);
+        return std::max(std::min(current_dt * Params.increaseFactor * std::pow(Params.localTol / error, 1.0 / (p + 1.0)),
+                                Params.maxDt),
+                       Params.minDt);
     }
     return current_dt;
 }

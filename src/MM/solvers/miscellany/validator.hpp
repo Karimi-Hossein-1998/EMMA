@@ -61,9 +61,9 @@ inline bool validate_solver_parameters(
     }
 
     // Check initial conditions
-    if (params.initial_conditions.empty())
+    if (params.initialConditions.empty())
     {
-        if (out_err) *out_err = "Invalid parameter 'initial_conditions': vector is empty. Provide initial state values (e.g., {1.0, 0.0}).";
+        if (out_err) *out_err = "Invalid parameter 'initialConditions': vector is empty. Provide initial state values (e.g., {1.0, 0.0}).";
         return false;
     }
 
@@ -107,15 +107,15 @@ inline bool validate_solver_parameters(
     {
         try
         {
-            auto v = params.derivative(params.t0, params.initial_conditions);
-            if (v.size() != params.initial_conditions.size())
+            auto v = params.derivative(params.t0, params.initialConditions);
+            if (v.size() != params.initialConditions.size())
             {
                 if (out_err)
                 {
                     std::ostringstream ss;
                     ss << "Derivative returned vector of size " << v.size()
-                       << " at t0 = " << params.t0 << ", but expected size " << params.initial_conditions.size() << ".";
-                    ss << " Suggestion: ensure your 'derivative' returns dVec of the same length as initial_conditions.";
+                       << " at t0 = " << params.t0 << ", but expected size " << params.initialConditions.size() << ".";
+                    ss << " Suggestion: ensure your 'derivative' returns dVec of the same length as initialConditions.";
                     *out_err = ss.str();
                 }
                 return false;

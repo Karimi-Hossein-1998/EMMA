@@ -1,6 +1,8 @@
 #pragma once
 #include "../../../../typedefs/header.hpp"
 
+namespace MathEngine
+{ // MathEnggine namespace
 // 3/8 Rule RK4
 // A variant of the classical RK4 method using a different set of coefficients
 // for the final weighted average, trading some accuracy for different stability.
@@ -8,7 +10,7 @@ inline SolverResults rk4_38_solver(const SolverParameters& Params)
 {
     // Extract parameters for clarity
     const auto&  f    = Params.derivative;
-    const auto&  y0   = Params.initial_conditions;
+    const auto&  y0   = Params.initialConditions;
     const double t0   = Params.t0;
     const double t1   = Params.t1;
     const double dt   = Params.dt;
@@ -17,10 +19,10 @@ inline SolverResults rk4_38_solver(const SolverParameters& Params)
     // Initialize solution storage
     const size_t num_steps   = static_cast<size_t>((t1 - t0) / dt);
     auto         solution    = dMatrix(num_steps + 1, dVec(N));
-    auto         time_points = dVec(num_steps + 1);
+    auto         timePoints = dVec(num_steps + 1);
 
     solution[0]    = y0;
-    time_points[0] = t0;
+    timePoints[0] = t0;
 
     auto y            = y0;
     auto y_temp       = dVec(N, 0.0);
@@ -33,7 +35,7 @@ inline SolverResults rk4_38_solver(const SolverParameters& Params)
     // Main integration loop
     for (size_t i = 0; i < num_steps; ++i)
     {
-        const double t = time_points[i];
+        const double t = timePoints[i];
 
         k1 = f(t, y);
         for (size_t j = 0; j < N; ++j)
@@ -49,12 +51,12 @@ inline SolverResults rk4_38_solver(const SolverParameters& Params)
             y[j] += dt_8 * (k1[j] + k4[j]) + dt_3_8 * (k2[j] + k3[j]);
         
         solution[i + 1]    = y;
-        time_points[i + 1] = t + dt;
+        timePoints[i + 1] = t + dt;
     }
 
     auto results        = SolverResults{};
     results.solution    = solution;
-    results.time_points = time_points;
+    results.timePoints = timePoints;
     return results;
 }
 
@@ -69,7 +71,7 @@ inline dMatrix rk4_38_solver(
 {
     auto params               = SolverParameters{};
     params.derivative         = deriv;
-    params.initial_conditions = y0;
+    params.initialConditions = y0;
     params.t0                 = t0;
     params.t1                 = t1;
     params.dt                 = dt;
@@ -83,7 +85,7 @@ inline SolverResults rk4_ralston_solver(const SolverParameters& Params)
 {
     // Extract parameters for clarity
     const auto&  f    = Params.derivative;
-    const auto&  y0   = Params.initial_conditions;
+    const auto&  y0   = Params.initialConditions;
     const double t0   = Params.t0;
     const double t1   = Params.t1;
     const double dt   = Params.dt;
@@ -92,10 +94,10 @@ inline SolverResults rk4_ralston_solver(const SolverParameters& Params)
     // Initialize solution storage
     const size_t num_steps   = static_cast<size_t>((t1 - t0) / dt);
     auto         solution    = dMatrix(num_steps + 1, dVec(N));
-    auto         time_points = dVec(num_steps + 1);
+    auto         timePoints = dVec(num_steps + 1);
 
     solution[0]    = y0;
-    time_points[0] = t0;
+    timePoints[0] = t0;
 
     auto y            = y0;
     auto y_temp       = dVec(N, 0.0);
@@ -116,7 +118,7 @@ inline SolverResults rk4_ralston_solver(const SolverParameters& Params)
     // Main integration loop
     for (size_t i = 0; i < num_steps; ++i)
     {
-        const double t = time_points[i];
+        const double t = timePoints[i];
         
         k1 = f(t, y);
         
@@ -136,12 +138,12 @@ inline SolverResults rk4_ralston_solver(const SolverParameters& Params)
             y[j] += dy_1 * ( k1[j] + k2[j] + k4[j]) + dy_3 * k3[j];
 
         solution[i + 1]    = y;
-        time_points[i + 1] = t + dt;
+        timePoints[i + 1] = t + dt;
     }
 
     auto results        = SolverResults{};
     results.solution    = solution;
-    results.time_points = time_points;
+    results.timePoints = timePoints;
     return results;
 }
 
@@ -156,7 +158,7 @@ inline dMatrix rk4_ralston_solver(
 {
     auto params               = SolverParameters{};
     params.derivative         = deriv;
-    params.initial_conditions = y0;
+    params.initialConditions = y0;
     params.t0                 = t0;
     params.t1                 = t1;
     params.dt                 = dt;
@@ -170,7 +172,7 @@ inline SolverResults rk4_gill_solver(const SolverParameters& Params)
 {
     // Extract parameters for clarity
     const auto&  f    = Params.derivative;
-    const auto&  y0   = Params.initial_conditions;
+    const auto&  y0   = Params.initialConditions;
     const double t0   = Params.t0;
     const double t1   = Params.t1;
     const double dt   = Params.dt;
@@ -179,10 +181,10 @@ inline SolverResults rk4_gill_solver(const SolverParameters& Params)
     // Initialize solution storage
     const size_t num_steps   = static_cast<size_t>((t1 - t0) / dt);
     auto         solution    = dMatrix(num_steps + 1, dVec(N));
-    auto         time_points = dVec(num_steps + 1);
+    auto         timePoints = dVec(num_steps + 1);
 
     solution[0]    = y0;
-    time_points[0] = t0;
+    timePoints[0] = t0;
 
     auto y            = y0;
     auto dt_half      = dt * 0.5;
@@ -202,7 +204,7 @@ inline SolverResults rk4_gill_solver(const SolverParameters& Params)
     // Main integration loop
     for (size_t i = 0; i < num_steps; ++i)
     {
-        const double t = time_points[i];
+        const double t = timePoints[i];
         
         k1 = f(t, y);
         
@@ -225,12 +227,12 @@ inline SolverResults rk4_gill_solver(const SolverParameters& Params)
             y[j] += dt_sixth * (k1[j] + k4[j]) + dy_2 * k2[j] + dy_3 * k3[j];
 
         solution[i + 1]    = y;
-        time_points[i + 1] = t + dt;
+        timePoints[i + 1] = t + dt;
     }
 
     auto results        = SolverResults{};
     results.solution    = solution;
-    results.time_points = time_points;
+    results.timePoints = timePoints;
     return results;
 }
 
@@ -245,9 +247,10 @@ inline dMatrix rk4_gill_solver(
 {
     auto params               = SolverParameters{};
     params.derivative         = deriv;
-    params.initial_conditions = y0;
+    params.initialConditions = y0;
     params.t0                 = t0;
     params.t1                 = t1;
     params.dt                 = dt;
     return rk4_gill_solver(params).solution;
 }
+} // End namespace MathEngine

@@ -21,14 +21,14 @@ inline dVec calculate_order(const dVec& phases)
 inline dMatrix calculate_order(const SolverResults& results)
 {
     const auto&  sol      = results.solution;
-    const auto&  time     = results.time_points;
+    const auto&  time     = results.timePoints;
     const auto   N        = sol[0].size();
     const double NinVerse = 1.0 / static_cast<double>(N);
     dMatrix order;
 
     if (time.size() != sol.size())
     {
-        throw std::invalid_argument("[calculate_order] Dimensions mismatch: time_points.size() (" + 
+        throw std::invalid_argument("[calculate_order] Dimensions mismatch: timePoints.size() (" +
               std::to_string(time.size()) + ") != solution.size() (" + 
               std::to_string(sol.size()) + ")");
     }
@@ -176,7 +176,7 @@ inline dMatrix calculate_order_per_module(
 )
 {
     const auto& sol  = results.solution;
-    const auto& time = results.time_points;
+    const auto& time = results.timePoints;
     const auto  N    = sol[0].size();
     dVec         order_per_time(num_modules*3 + 3, 0.0);
     dMatrix      all_orders;

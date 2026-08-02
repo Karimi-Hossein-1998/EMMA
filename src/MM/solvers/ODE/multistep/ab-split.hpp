@@ -9,9 +9,9 @@
 //   but returns the history in time-increasing order for convenience.
 //   The returned SolverResults contains:
 //     - solution: matrix of `order` states (earliest -> t0)
-//     - time_points: corresponding times (earliest -> t0)
-//     - step_sizes: populated with dt repeated (size = order - 1)
-//     - steps_history: populated with the derivative evaluations at each history time
+//     - timePoints: corresponding times (earliest -> t0)
+//     - stepSizes: populated with dt repeated (size = order - 1)
+//     - stepsHistory: populated with the derivative evaluations at each history time
 // - ab_predictor_only: uses an existing history (as produced by `ab_bootstrap_rk4`)
 //   to integrate forward from t0 to t1 using the explicit Adams-Bashforth formula
 //   (fixed dt). The history must contain at least `order` entries ending at t0.
@@ -26,7 +26,7 @@
 inline SolverResults ab_bootstrap_rk4(const SolverParameters& Params)
 {
     const auto&  f     = Params.derivative;
-    const auto&  y0    = Params.initial_conditions; // y(t0)
+    const auto&  y0    = Params.initialConditions; // y(t0)
     const double t0    = Params.t0;
     const double dt    = Params.dt;
     const int    order = std::max(1, Params.order);
@@ -71,26 +71,26 @@ inline SolverResults ab_bootstrap_rk4(const SolverParameters& Params)
 
     // Reverse to increasing order
     auto solution = dMatrix(order);
-    auto time_points = dVec(order);
+    auto timePoints = dVec(order);
     for (int i = 0; i < order; ++i)
     {
         solution[i] = std::move(sol_rev[i]);
-        time_points[i] = times_rev[i];
+        timePoints[i] = times_rev[i];
     }
 
     // Compute derivative history and step sizes
     dMatrix derivatives(order, dVec(N, 0.0));
     for (int i = 0; i < order; ++i)
-        derivatives[i] = f(time_points[i], solution[i]);
+        derivatives[i] = f(timePoints[i], solution[i]);
 
-    dVec step_sizes;
-    if (order >= 2) step_sizes.assign(order - 1, dt);
+    dVec stepSizes;
+    if (order >= 2) stepSizes.assign(order - 1, dt);
 
     SolverResults results;
     results.solution = std::move(solution);
-    results.time_points = std::move(time_points);
-    results.step_sizes = std::move(step_sizes);
-    results.steps_history = std::move(derivatives); // store derivative history here for convenience
+    results.timePoints = std::move(timePoints);
+    results.stepSizes = std::move(stepSizes);
+    results.stepsHistory = std::move(derivatives); // store derivative history here for convenience
 
     return results;
 }
@@ -112,17 +112,17 @@ inline SolverResults ab_predictor_only(const SolverParameters& Params, const Sol
 
     // Initialize f_hist: oldest -> newest
     dMatrix f_hist(order, dVec(history.solution[0].size(), 0.0));
-    if (!history.steps_history.empty() && history.steps_history.size() >= hist_sz)
+    if (!history.stepsHistory.empty() && history.stepsHistory.size() >= hist_sz)
     {
         // Use provided derivatives if available
         for (int k = 0; k < order; ++k)
-            f_hist[k] = history.steps_history[start_idx + k];
+            f_hist[k] = history.stepsHistory[start_idx + k];
     }
     else
     {
         // Compute derivatives
         for (int k = 0; k < order; ++k)
-            f_hist[k] = f(history.time_points[start_idx + k], history.solution[start_idx + k]);
+            f_hist[k] = f(history.timePoints[start_idx + k], history.solution[start_idx + k]);
     }
 
     // Determine number of forward steps (consistent with fixed-step non-adaptive solvers)
@@ -130,14 +130,14 @@ inline SolverResults ab_predictor_only(const SolverParameters& Params, const Sol
 
     // Result containers: include t0 as first point
     auto solution = dMatrix(num_steps + 1, dVec(history.solution.back().size()));
-    auto time_points = dVec(num_steps + 1);
+    auto timePoints = dVec(num_steps + 1);
 
     // initial state at t0 is the latest history element
     solution[0] = history.solution.back();
-    time_points[0] = history.time_points.back();
+    timePoints[0] = history.timePoints.back();
 
     dVec y_curr = solution[0];
-    double t_curr = time_points[0];
+    double t_curr = timePoints[0];
 
     // AB predictor loop
     for (size_t step = 0; step < num_steps; ++step)
@@ -159,7 +159,7 @@ inline SolverResults ab_predictor_only(const SolverParameters& Params, const Sol
         double t_next = t_curr + dt;
 
         solution[step + 1] = y_next;
-        time_points[step + 1] = t_next;
+        timePoints[step + 1] = t_next;
 
         // update history: shift left and append newest derivative
         for (int k = 0; k < order - 1; ++k)
@@ -173,9 +173,9 @@ inline SolverResults ab_predictor_only(const SolverParameters& Params, const Sol
 
     SolverResults results;
     results.solution = std::move(solution);
-    results.time_points = std::move(time_points);
-    // populate step_sizes as constant dt steps
-    results.step_sizes = dVec(num_steps, dt);
+    results.timePoints = std::move(timePoints);
+    // populate stepSizes as constant dt steps
+    results.stepSizes = dVec(num_steps, dt);
     return results;
 }
 

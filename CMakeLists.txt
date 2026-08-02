@@ -22,10 +22,17 @@ add_library(imgui STATIC
 )
 target_include_directories(imgui PUBLIC vendor/imgui)
 
+add_library(implot STATIC
+	vendor/implot/implot.cpp
+	vendor/implot/implot_items.cpp
+)
+target_include_directories(implot PUBLIC vendor/implot)
+target_include_directories(implot PRIVATE vendor/imgui)
+
 add_library(rlImGui STATIC
 	vendor/rlImGui/rlImGui.cpp
 )
-target_include_directories(imgui PUBLIC
+target_include_directories(rlImGui PUBLIC
 	vendor/imgui
 	vendor/rlImGui
 )
@@ -51,6 +58,7 @@ target_include_directories(EMMA PRIVATE
 	vendor/raylib
 	vendor/raylib/src
 	vendor/imgui
+	vendor/implot
 	vendor/rlImGui
 )
-target_link_libraries(EMMA PRIVATE raylib imgui rlImGui)
+target_link_libraries(EMMA PRIVATE raylib implot imgui rlImGui)

@@ -6,7 +6,7 @@
 SolverResults rk12_custom_solver(const SolverParameters& Params)
 {
     auto deriv = Params.derivative;
-    auto y     = Params.initial_conditions;
+    auto y     = Params.initialConditions;
     auto t     = Params.t0;
     auto t1    = Params.t1;
     auto dt    = Params.dt;
@@ -21,11 +21,11 @@ SolverResults rk12_custom_solver(const SolverParameters& Params)
     dMatrix      Errors_History;
     dMatrix      Steps_History;
     wVec Failed_Trials;
-    dVec        Error_Attempt(Params.max_trial, 0.0);
-    dVec        Step_Attempt(Params.max_trial, 0.0);
+    dVec        Error_Attempt(Params.maxTrial, 0.0);
+    dVec        Step_Attempt(Params.maxTrial, 0.0);
 
     // Case 1: No error estimation - simple RK1
-    if (!Params.error_estimate)
+    if (!Params.errorEstimate)
     {
         while (t < t1)
         {
@@ -39,7 +39,7 @@ SolverResults rk12_custom_solver(const SolverParameters& Params)
         }
     }
     // Case 2: Error estimation without variable steps
-    else if (!Params.variable_steps)
+    else if (!Params.variableSteps)
     {
         auto dt_half = dt * 0.5;
         auto y_old   = y;
@@ -125,7 +125,7 @@ SolverResults rk12_custom_solver(const SolverParameters& Params)
                 dt = new_dt;
             }
 
-            if (Params.attempts_history)
+            if (Params.attemptsHistory)
             {
                 Errors_History.push_back(Error_Attempt);
                 Steps_History.push_back(Step_Attempt);
@@ -142,18 +142,18 @@ SolverResults rk12_custom_solver(const SolverParameters& Params)
 
     SolverResults Results;
     Results.solution = result;
-    Results.time_points = Times;
-    if (Params.error_estimate)
+    Results.timePoints = Times;
+    if (Params.errorEstimate)
     {
         Results.errors = Errors;
-        if (Params.variable_steps)
+        if (Params.variableSteps)
         {
-            Results.step_sizes = Steps;
-            if (Params.attempts_history)
+            Results.stepSizes = Steps;
+            if (Params.attemptsHistory)
             {
-                Results.errors_history = Errors_History;
-                Results.steps_history = Steps_History;
-                Results.failed_trials = Failed_Trials;
+                Results.errorsHistory = Errors_History;
+                Results.stepsHistory = Steps_History;
+                Results.failedTrials = Failed_Trials;
             }
         }
     }
@@ -164,7 +164,7 @@ SolverResults rk12_custom_solver(const SolverParameters& Params)
 SolverResults rk23_custom_solver(const SolverParameters& Params)
 {
     auto deriv = Params.derivative;
-    auto y     = Params.initial_conditions;
+    auto y     = Params.initialConditions;
     auto t     = Params.t0;
     auto t1    = Params.t1;
     auto dt    = Params.dt;
@@ -179,8 +179,8 @@ SolverResults rk23_custom_solver(const SolverParameters& Params)
     dMatrix      Errors_History;
     dMatrix      Steps_History;
     wVec Failed_Trials;
-    dVec        Error_Attempt(Params.max_trial, 0.0);
-    dVec        Step_Attempt(Params.max_trial, 0.0);
+    dVec        Error_Attempt(Params.maxTrial, 0.0);
+    dVec        Step_Attempt(Params.maxTrial, 0.0);
 
     auto y_old = y;
     auto y_rk3 = y;
@@ -189,7 +189,7 @@ SolverResults rk23_custom_solver(const SolverParameters& Params)
     auto k2    = y;
     auto k3    = y;
     // Case 1: No error estimation - simple RK2
-    if (!Params.error_estimate)
+    if (!Params.errorEstimate)
     {
         auto dt_half  = dt * 0.5;
         while (t < t1)
@@ -208,7 +208,7 @@ SolverResults rk23_custom_solver(const SolverParameters& Params)
         }
     }
     // Case 2: Error estimation without variable steps
-    else if (!Params.variable_steps)
+    else if (!Params.variableSteps)
     {
         auto dt_half  = dt * 0.5;
         auto dt_2     = dt * 2.0; 
@@ -308,7 +308,7 @@ SolverResults rk23_custom_solver(const SolverParameters& Params)
                 dt = new_dt;
             }
 
-            if (Params.attempts_history)
+            if (Params.attemptsHistory)
             {
                 Errors_History.push_back(Error_Attempt);
                 Steps_History.push_back(Step_Attempt);
@@ -325,18 +325,18 @@ SolverResults rk23_custom_solver(const SolverParameters& Params)
 
     SolverResults Results;
     Results.solution = result;
-    Results.time_points = Times;
-    if (Params.error_estimate)
+    Results.timePoints = Times;
+    if (Params.errorEstimate)
     {
         Results.errors = Errors;
-        if (Params.variable_steps)
+        if (Params.variableSteps)
         {
-            Results.step_sizes = Steps;
-            if (Params.attempts_history)
+            Results.stepSizes = Steps;
+            if (Params.attemptsHistory)
             {
-                Results.errors_history = Errors_History;
-                Results.steps_history = Steps_History;
-                Results.failed_trials = Failed_Trials;
+                Results.errorsHistory = Errors_History;
+                Results.stepsHistory = Steps_History;
+                Results.failedTrials = Failed_Trials;
             }
         }
     }
@@ -347,7 +347,7 @@ SolverResults rk23_custom_solver(const SolverParameters& Params)
 SolverResults rk34_custom_solver(const SolverParameters& Params)
 {
     auto deriv = Params.derivative;
-    auto y     = Params.initial_conditions;
+    auto y     = Params.initialConditions;
     auto t     = Params.t0;
     auto t1    = Params.t1;
     auto dt    = Params.dt;
@@ -362,8 +362,8 @@ SolverResults rk34_custom_solver(const SolverParameters& Params)
     dMatrix      Errors_History;
     dMatrix      Steps_History;
     wVec Failed_Trials;
-    dVec        Error_Attempt(Params.max_trial, 0.0);
-    dVec        Step_Attempt(Params.max_trial, 0.0);
+    dVec        Error_Attempt(Params.maxTrial, 0.0);
+    dVec        Step_Attempt(Params.maxTrial, 0.0);
 
     auto y_temp = y;
     auto y_rk4  = y;
@@ -373,7 +373,7 @@ SolverResults rk34_custom_solver(const SolverParameters& Params)
     auto k3     = y;
     auto k4     = y;
     // Case 1: No error estimation - simple RK3
-    if (!Params.error_estimate)
+    if (!Params.errorEstimate)
     {
         auto dt_half = dt * 0.5;
         auto dt_3_4  = dt * 0.75;
@@ -402,7 +402,7 @@ SolverResults rk34_custom_solver(const SolverParameters& Params)
         }
     }
     // Case 2: Error estimation without variable steps
-    else if (!Params.variable_steps)
+    else if (!Params.variableSteps)
     {
         auto dt_half  = dt * 0.5;
         auto dt_3_4   = dt * 0.75;
@@ -514,7 +514,7 @@ SolverResults rk34_custom_solver(const SolverParameters& Params)
                 dt = new_dt;
             }
 
-            if (Params.attempts_history)
+            if (Params.attemptsHistory)
             {
                 Errors_History.push_back(Error_Attempt);
                 Steps_History.push_back(Step_Attempt);
@@ -531,18 +531,18 @@ SolverResults rk34_custom_solver(const SolverParameters& Params)
 
     SolverResults Results;
     Results.solution = result;
-    Results.time_points = Times;
-    if (Params.error_estimate)
+    Results.timePoints = Times;
+    if (Params.errorEstimate)
     {
         Results.errors = Errors;
-        if (Params.variable_steps)
+        if (Params.variableSteps)
         {
-            Results.step_sizes = Steps;
-            if (Params.attempts_history)
+            Results.stepSizes = Steps;
+            if (Params.attemptsHistory)
             {
-                Results.errors_history = Errors_History;
-                Results.steps_history = Steps_History;
-                Results.failed_trials = Failed_Trials;
+                Results.errorsHistory = Errors_History;
+                Results.stepsHistory = Steps_History;
+                Results.failedTrials = Failed_Trials;
             }
         }
     }
@@ -553,7 +553,7 @@ SolverResults rk34_custom_solver(const SolverParameters& Params)
 SolverResults rk45_custom_solver(const SolverParameters& Params)
 {
     auto deriv = Params.derivative;
-    auto y     = Params.initial_conditions;
+    auto y     = Params.initialConditions;
     auto t     = Params.t0;
     auto t1    = Params.t1;
     auto dt    = Params.dt;
@@ -568,8 +568,8 @@ SolverResults rk45_custom_solver(const SolverParameters& Params)
     dMatrix      Errors_History;
     dMatrix      Steps_History;
     wVec Failed_Trials;
-    dVec        Error_Attempt(Params.max_trial, 0.0);
-    dVec        Step_Attempt(Params.max_trial, 0.0);
+    dVec        Error_Attempt(Params.maxTrial, 0.0);
+    dVec        Step_Attempt(Params.maxTrial, 0.0);
 
     auto y_old = y;
     auto y_rk5 = y;
@@ -580,7 +580,7 @@ SolverResults rk45_custom_solver(const SolverParameters& Params)
     auto k4    = y;
     auto k5    = y;
     // Case 1: No error estimation - simple RK4
-    if (!Params.error_estimate)
+    if (!Params.errorEstimate)
     {
         auto dt_half  = dt * 0.5;
         auto dt_third = dt / 3.0;
@@ -613,7 +613,7 @@ SolverResults rk45_custom_solver(const SolverParameters& Params)
         }
     }
     // Case 2: Error estimation without variable steps
-    else if (!Params.variable_steps)
+    else if (!Params.variableSteps)
     {
         auto dt_half  = dt * 0.5;
         auto dt_third = dt / 3.0;
@@ -748,7 +748,7 @@ SolverResults rk45_custom_solver(const SolverParameters& Params)
                 dt = new_dt;
             }
 
-            if (Params.attempts_history)
+            if (Params.attemptsHistory)
             {
                 Errors_History.push_back(Error_Attempt);
                 Steps_History.push_back(Step_Attempt);
@@ -765,18 +765,18 @@ SolverResults rk45_custom_solver(const SolverParameters& Params)
 
     SolverResults Results;
     Results.solution = result;
-    Results.time_points = Times;
-    if (Params.error_estimate)
+    Results.timePoints = Times;
+    if (Params.errorEstimate)
     {
         Results.errors = Errors;
-        if (Params.variable_steps)
+        if (Params.variableSteps)
         {
-            Results.step_sizes = Steps;
-            if (Params.attempts_history)
+            Results.stepSizes = Steps;
+            if (Params.attemptsHistory)
             {
-                Results.errors_history = Errors_History;
-                Results.steps_history = Steps_History;
-                Results.failed_trials = Failed_Trials;
+                Results.errorsHistory = Errors_History;
+                Results.stepsHistory = Steps_History;
+                Results.failedTrials = Failed_Trials;
             }
         }
     }

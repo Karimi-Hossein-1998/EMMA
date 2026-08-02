@@ -10,7 +10,7 @@
 // If t_delay is before stored history, uses history_f(t_delay)
 inline dVec interpolate_delay(
     const dMatrix&        solution,
-    const dVec&          time_points,
+    const dVec&          timePoints,
     const double         t_delay,
     size_t               current_index,
     const Func&          history_f,
@@ -27,10 +27,10 @@ inline dVec interpolate_delay(
     int idx_lower = -1;
     for (int i = current_index; i >= 0; --i)
     {
-        if (time_points[i] <= t_delay)
+        if (timePoints[i] <= t_delay)
         {
             idx_lower = i;
-            // std::cout << "Lowwer index is: " << idx_lower << " | time = " << time_points[i] << '\n';
+            // std::cout << "Lowwer index is: " << idx_lower << " | time = " << timePoints[i] << '\n';
             break;
         }
     }
@@ -42,8 +42,8 @@ inline dVec interpolate_delay(
         return solution[current_index]; // Can't interpolate beyond current solution
 
     // Linear interpolation between idx_lower and idx_lower+1
-    const double t_lower  = time_points[idx_lower];
-    const double t_upper  = time_points[idx_lower + 1];
+    const double t_lower  = timePoints[idx_lower];
+    const double t_upper  = timePoints[idx_lower + 1];
     const double dt_local = t_upper - t_lower;
     const double alpha    = (t_delay - t_lower) / dt_local;
     if (std::fabs(dt_local) < 1.0e-14 || std::fabs(alpha) < 1.0e-14)
@@ -64,16 +64,16 @@ inline dVec interpolate_delay(
 inline SolverResults adams_bashforth_solver_dde(const SolverParameters& Params)
 {
     // Extract parameters for clarity
-    const auto&  y0        = Params.initial_conditions;
+    const auto&  y0        = Params.initialConditions;
     const double t0        = Params.t0;
     const double t1        = Params.t1;
     const double user_dt   = Params.dt;
     const int    order     = Params.order;
-    const auto   delays    = Params.delay_times;
+    const auto   delays    = Params.delayTimes;
     const size_t N         = y0.size();
     const int    max_order = 10;
     const size_t num_delay = delays.size();
-    const auto   history_f = Params.history_function;
+    const auto   history_f = Params.historyFunction;
     const double tau_max = (num_delay > 0) ? *std::max_element(delays.begin(), delays.end()) : 0.0;
     const double tau_min = (num_delay > 0) ? *std::min_element(delays.begin(), delays.end()) : 0.0;
 
@@ -97,7 +97,7 @@ inline SolverResults adams_bashforth_solver_dde(const SolverParameters& Params)
     if (num_delay == 1)
         delay_f = Params.delay_derivative;
     else
-        delay_f_m = Params.delay_derivative_multi;
+        delay_f_m = Params.delayDerivativeMulti;
 
     if (delay_f == nullptr && delay_f_m == nullptr)
         throw std::invalid_argument("DDE derivative function must be provided for non-zero delays");
@@ -105,12 +105,12 @@ inline SolverResults adams_bashforth_solver_dde(const SolverParameters& Params)
     // Initialize solution storage
     // Determine step size to capture delay history adequately
     const size_t num_per_steps = std::max(static_cast<size_t>(8), static_cast<size_t>(std::ceil(1.0 / user_dt)));
-    const double min_dt        = tau_min / num_per_steps;
-    const double dt            = ( tau_min < Params.dt_scale*user_dt ) ? tau_min : std::min(user_dt, min_dt);
+    const double minDt        = tau_min / num_per_steps;
+    const double dt            = ( tau_min < Params.dtScale*user_dt ) ? tau_min : std::min(user_dt, minDt);
     const size_t num_pre_steps = static_cast<size_t>(std::ceil(tau_max / dt));
     const size_t num_steps     = static_cast<size_t>(std::ceil((t1 - t0) / dt)) + num_pre_steps + order;
     auto         solution      = dMatrix(num_steps + 1, dVec(N));
-    auto         time_points   = dVec(num_steps + 1, 0.0);
+    auto         timePoints   = dVec(num_steps + 1, 0.0);
 
     // Initialize pre-history using history function
     double pre_time = t0 - dt*num_pre_steps;
@@ -119,14 +119,14 @@ inline SolverResults adams_bashforth_solver_dde(const SolverParameters& Params)
     for (pre_idx = 0; pre_idx < num_pre_steps && pre_time < t0; ++pre_idx)
     {
         solution[pre_idx] = history_f(pre_time);
-        time_points[pre_idx] = pre_time;
+        timePoints[pre_idx] = pre_time;
         pre_time += dt;
     }
     
     pre_idx              = num_pre_steps;
     solution[pre_idx]    = y0;
     pre_time             = t0;
-    time_points[pre_idx] = pre_time;
+    timePoints[pre_idx] = pre_time;
 
     dMatrix f_hist(order, dVec(N));
     // f_hist stores derivatives in chronological order: [oldest, ..., newest]
@@ -142,7 +142,7 @@ inline SolverResults adams_bashforth_solver_dde(const SolverParameters& Params)
     for (size_t i = pre_idx; i < bootstrap_upper; ++i)
     {
         // Use RK4 for single step with DDE derivative
-        const double t_curr = time_points[i];
+        const double t_curr = timePoints[i];
         dVec y_curr = solution[i], y_next(N);
         dVec k1(N), k2(N), k3(N), k4(N);
         dVec y_k2(N), y_k3(N), y_k4(N);
@@ -151,7 +151,7 @@ inline SolverResults adams_bashforth_solver_dde(const SolverParameters& Params)
         {
             if (delay_f)
             {
-                y_delayed = interpolate_delay(solution, time_points, t_curr - delays[0], i, history_f, t0);
+                y_delayed = interpolate_delay(solution, timePoints, t_curr - delays[0], i, history_f, t0);
                 k1 = delay_f(t_curr, y_curr, y_delayed);
                 f_hist[hist_idx] = k1;
 
@@ -159,21 +159,21 @@ inline SolverResults adams_bashforth_solver_dde(const SolverParameters& Params)
                 y_k2 = y_curr;
                 for (size_t j = 0; j < N; ++j) y_k2[j] += 0.5 * dt * k1[j];
 
-                y_delayed = interpolate_delay(solution, time_points, t_curr + 0.5 * dt - delays[0], i, history_f, t0);
+                y_delayed = interpolate_delay(solution, timePoints, t_curr + 0.5 * dt - delays[0], i, history_f, t0);
                 k2 = delay_f(t_curr + 0.5 * dt, y_k2, y_delayed);
 
                 // Compute k3
                 y_k3 = y_curr;
                 for (size_t j = 0; j < N; ++j) y_k3[j] += 0.5 * dt * k2[j];
 
-                y_delayed = interpolate_delay(solution, time_points, t_curr + 0.5 * dt - delays[0], i, history_f, t0);
+                y_delayed = interpolate_delay(solution, timePoints, t_curr + 0.5 * dt - delays[0], i, history_f, t0);
                 k3 = delay_f(t_curr + 0.5 * dt, y_k3, y_delayed);
 
                 // Compute k4
                 y_k4 = y_curr;
                 for (size_t j = 0; j < N; ++j) y_k4[j] += dt * k3[j];
 
-                y_delayed = interpolate_delay(solution, time_points, t_curr + dt - delays[0], i, history_f, t0);
+                y_delayed = interpolate_delay(solution, timePoints, t_curr + dt - delays[0], i, history_f, t0);
                 k4 = delay_f(t_curr + dt, y_k4, y_delayed);
             }
         }
@@ -183,7 +183,7 @@ inline SolverResults adams_bashforth_solver_dde(const SolverParameters& Params)
             {
                 for (size_t d = 0; d < num_delay; ++d)
                 {
-                    y_delayed_all[d] = interpolate_delay(solution, time_points, t_curr - delays[d], i, history_f, t0);
+                    y_delayed_all[d] = interpolate_delay(solution, timePoints, t_curr - delays[d], i, history_f, t0);
                 }
                 k1 = delay_f_m(t_curr, y_curr, y_delayed_all);
                 f_hist[hist_idx] = k1;
@@ -194,7 +194,7 @@ inline SolverResults adams_bashforth_solver_dde(const SolverParameters& Params)
 
                 for (size_t d = 0; d < num_delay; ++d)
                 {
-                    y_delayed_all[d] = interpolate_delay(solution, time_points, t_curr + 0.5 * dt - delays[d], i, history_f, t0);
+                    y_delayed_all[d] = interpolate_delay(solution, timePoints, t_curr + 0.5 * dt - delays[d], i, history_f, t0);
                 }
                 k2 = delay_f_m(t_curr + 0.5 * dt, y_k2, y_delayed_all);
 
@@ -204,7 +204,7 @@ inline SolverResults adams_bashforth_solver_dde(const SolverParameters& Params)
 
                 for (size_t d = 0; d < num_delay; ++d)
                 {
-                    y_delayed_all[d] = interpolate_delay(solution, time_points, t_curr + 0.5 * dt - delays[d], i, history_f, t0);
+                    y_delayed_all[d] = interpolate_delay(solution, timePoints, t_curr + 0.5 * dt - delays[d], i, history_f, t0);
                 }
                 k3 = delay_f_m(t_curr + 0.5 * dt, y_k3, y_delayed_all);
 
@@ -214,7 +214,7 @@ inline SolverResults adams_bashforth_solver_dde(const SolverParameters& Params)
 
                 for (size_t d = 0; d < num_delay; ++d)
                 {
-                    y_delayed_all[d] = interpolate_delay(solution, time_points, t_curr + dt - delays[d], i, history_f, t0);
+                    y_delayed_all[d] = interpolate_delay(solution, timePoints, t_curr + dt - delays[d], i, history_f, t0);
                 }
                 k4 = delay_f_m(t_curr + dt, y_k4, y_delayed_all);
             }
@@ -226,7 +226,7 @@ inline SolverResults adams_bashforth_solver_dde(const SolverParameters& Params)
             y_next[j] += (dt / 6.0) * (k1[j] + 2.0 * k2[j] + 2.0 * k3[j] + k4[j]);
         
         solution[i + 1] = y_next;
-        time_points[i + 1] = t_curr + dt;
+        timePoints[i + 1] = t_curr + dt;
 
         hist_idx += 1;
     }
@@ -237,7 +237,7 @@ inline SolverResults adams_bashforth_solver_dde(const SolverParameters& Params)
     // Main Adams-Bashforth loop
     for (size_t i = pre_idx; i < num_steps; ++i)
     {
-        const double t_curr = time_points[i];
+        const double t_curr = timePoints[i];
         const dVec& y_curr = solution[i];
         dVec y_next = y_curr;
 
@@ -251,24 +251,24 @@ inline SolverResults adams_bashforth_solver_dde(const SolverParameters& Params)
         }
         
         solution[i + 1] = y_next;
-        time_points[i + 1] = t_curr + dt;
+        timePoints[i + 1] = t_curr + dt;
 
         // Update history by shifting and adding the new derivative
         for (int k = 0; k < order - 1; ++k)
             f_hist[k] = f_hist[k + 1];
         
         // Compute new derivative with delayed arguments
-        const double t_next = time_points[i + 1];
+        const double t_next = timePoints[i + 1];
         if (num_delay == 1 && delay_f)
         {
-            y_delayed = interpolate_delay(solution, time_points, t_next - delays[0], i + 1, history_f, t0);
+            y_delayed = interpolate_delay(solution, timePoints, t_next - delays[0], i + 1, history_f, t0);
             f_hist[order - 1] = delay_f(t_next, y_next, y_delayed);
         }
         else if (num_delay > 1 && delay_f_m)
         {
             for (size_t d = 0; d < num_delay; ++d)
             {
-                y_delayed_all[d] = interpolate_delay(solution, time_points, t_next - delays[d], i + 1, history_f, t0);
+                y_delayed_all[d] = interpolate_delay(solution, timePoints, t_next - delays[d], i + 1, history_f, t0);
             }
             f_hist[order - 1] = delay_f_m(t_next, y_next, y_delayed_all);
         }
@@ -276,7 +276,7 @@ inline SolverResults adams_bashforth_solver_dde(const SolverParameters& Params)
 
     auto results        = SolverResults{};
     results.solution    = solution;
-    results.time_points = time_points;
+    results.timePoints = timePoints;
     return results;
 }
 
@@ -292,7 +292,7 @@ inline dMatrix adams_bashforth_solver_dde(
 {
     auto params               = SolverParameters{};
     params.derivative         = deriv;
-    params.initial_conditions = y0;
+    params.initialConditions = y0;
     params.t0                 = t0;
     params.t1                 = t1;
     params.dt                 = dt;
@@ -305,17 +305,17 @@ inline dMatrix adams_bashforth_solver_dde(
 inline SolverResults adams_bashforth_moulton_solver_dde(const SolverParameters& Params)
 {
     // Extract parameters for clarity
-    const auto&  y0        = Params.initial_conditions;
+    const auto&  y0        = Params.initialConditions;
     const double t0        = Params.t0;
     const double t1        = Params.t1;
     const double user_dt   = Params.dt;
     const int    order     = Params.order;
     const int    corrector_iters = Params.iterations;
-    const auto   delays    = Params.delay_times;
+    const auto   delays    = Params.delayTimes;
     const size_t N         = y0.size();
     const int    max_order = 10;
     const size_t num_delay = delays.size();
-    const auto   history_f = Params.history_function;
+    const auto   history_f = Params.historyFunction;
     const double tau_max = (num_delay > 0) ? *std::max_element(delays.begin(), delays.end()) : 0.0;
     const double tau_min = (num_delay > 0) ? *std::min_element(delays.begin(), delays.end()) : 0.0;
 
@@ -339,19 +339,19 @@ inline SolverResults adams_bashforth_moulton_solver_dde(const SolverParameters& 
     if (num_delay == 1)
         delay_f = Params.delay_derivative;
     else
-        delay_f_m = Params.delay_derivative_multi;
+        delay_f_m = Params.delayDerivativeMulti;
 
     if (delay_f == nullptr && delay_f_m == nullptr)
         throw std::invalid_argument("DDE derivative function must be provided for non-zero delays");
     
     // Initialize solution storage
     const size_t num_per_steps = std::max(static_cast<size_t>(8), static_cast<size_t>(std::ceil(1.0 / user_dt)));
-    const double min_dt        = tau_min / num_per_steps;
-    const double dt            = (tau_min < Params.dt_scale * user_dt) ? tau_min : std::min(user_dt, min_dt);
+    const double minDt        = tau_min / num_per_steps;
+    const double dt            = (tau_min < Params.dtScale * user_dt) ? tau_min : std::min(user_dt, minDt);
     const size_t num_pre_steps = static_cast<size_t>(std::ceil(tau_max / dt));
     const size_t num_steps     = static_cast<size_t>(std::ceil((t1 - t0) / dt)) + num_pre_steps + order;
     auto         solution      = dMatrix(num_steps + 1, dVec(N));
-    auto         time_points   = dVec(num_steps + 1, 0.0);
+    auto         timePoints   = dVec(num_steps + 1, 0.0);
 
     // Initialize pre-history using history function
     double pre_time = t0 - dt * num_pre_steps;
@@ -360,14 +360,14 @@ inline SolverResults adams_bashforth_moulton_solver_dde(const SolverParameters& 
     for (pre_idx = 0; pre_idx < num_pre_steps && pre_time < t0; ++pre_idx)
     {
         solution[pre_idx] = history_f(pre_time);
-        time_points[pre_idx] = pre_time;
+        timePoints[pre_idx] = pre_time;
         pre_time += dt;
     }
     
     pre_idx              = num_pre_steps;
     solution[pre_idx]    = y0;
     pre_time             = t0;
-    time_points[pre_idx] = pre_time;
+    timePoints[pre_idx] = pre_time;
 
     dMatrix f_hist(order, dVec(N));
     // f_hist stores derivatives in chronological order: [oldest, ..., newest]
@@ -383,7 +383,7 @@ inline SolverResults adams_bashforth_moulton_solver_dde(const SolverParameters& 
     for (size_t i = pre_idx; i < bootstrap_upper; ++i)
     {
         // Use RK4 for single step with DDE derivative
-        const double t_curr = time_points[i];
+        const double t_curr = timePoints[i];
         dVec y_curr = solution[i], y_next(N);
         dVec k1(N), k2(N), k3(N), k4(N);
         dVec y_k2(N), y_k3(N), y_k4(N);
@@ -392,7 +392,7 @@ inline SolverResults adams_bashforth_moulton_solver_dde(const SolverParameters& 
         {
             if (delay_f)
             {
-                y_delayed = interpolate_delay(solution, time_points, t_curr - delays[0], i, history_f, t0);
+                y_delayed = interpolate_delay(solution, timePoints, t_curr - delays[0], i, history_f, t0);
                 k1 = delay_f(t_curr, y_curr, y_delayed);
                 f_hist[hist_idx] = k1;
 
@@ -400,21 +400,21 @@ inline SolverResults adams_bashforth_moulton_solver_dde(const SolverParameters& 
                 y_k2 = y_curr;
                 for (size_t j = 0; j < N; ++j) y_k2[j] += 0.5 * dt * k1[j];
 
-                y_delayed = interpolate_delay(solution, time_points, t_curr + 0.5 * dt - delays[0], i, history_f, t0);
+                y_delayed = interpolate_delay(solution, timePoints, t_curr + 0.5 * dt - delays[0], i, history_f, t0);
                 k2 = delay_f(t_curr + 0.5 * dt, y_k2, y_delayed);
 
                 // Compute k3
                 y_k3 = y_curr;
                 for (size_t j = 0; j < N; ++j) y_k3[j] += 0.5 * dt * k2[j];
 
-                y_delayed = interpolate_delay(solution, time_points, t_curr + 0.5 * dt - delays[0], i, history_f, t0);
+                y_delayed = interpolate_delay(solution, timePoints, t_curr + 0.5 * dt - delays[0], i, history_f, t0);
                 k3 = delay_f(t_curr + 0.5 * dt, y_k3, y_delayed);
 
                 // Compute k4
                 y_k4 = y_curr;
                 for (size_t j = 0; j < N; ++j) y_k4[j] += dt * k3[j];
 
-                y_delayed = interpolate_delay(solution, time_points, t_curr + dt - delays[0], i, history_f, t0);
+                y_delayed = interpolate_delay(solution, timePoints, t_curr + dt - delays[0], i, history_f, t0);
                 k4 = delay_f(t_curr + dt, y_k4, y_delayed);
             }
         }
@@ -424,7 +424,7 @@ inline SolverResults adams_bashforth_moulton_solver_dde(const SolverParameters& 
             {
                 for (size_t d = 0; d < num_delay; ++d)
                 {
-                    y_delayed_all[d] = interpolate_delay(solution, time_points, t_curr - delays[d], i, history_f, t0);
+                    y_delayed_all[d] = interpolate_delay(solution, timePoints, t_curr - delays[d], i, history_f, t0);
                 }
                 k1 = delay_f_m(t_curr, y_curr, y_delayed_all);
                 f_hist[hist_idx] = k1;
@@ -435,7 +435,7 @@ inline SolverResults adams_bashforth_moulton_solver_dde(const SolverParameters& 
 
                 for (size_t d = 0; d < num_delay; ++d)
                 {
-                    y_delayed_all[d] = interpolate_delay(solution, time_points, t_curr + 0.5 * dt - delays[d], i, history_f, t0);
+                    y_delayed_all[d] = interpolate_delay(solution, timePoints, t_curr + 0.5 * dt - delays[d], i, history_f, t0);
                 }
                 k2 = delay_f_m(t_curr + 0.5 * dt, y_k2, y_delayed_all);
 
@@ -445,7 +445,7 @@ inline SolverResults adams_bashforth_moulton_solver_dde(const SolverParameters& 
 
                 for (size_t d = 0; d < num_delay; ++d)
                 {
-                    y_delayed_all[d] = interpolate_delay(solution, time_points, t_curr + 0.5 * dt - delays[d], i, history_f, t0);
+                    y_delayed_all[d] = interpolate_delay(solution, timePoints, t_curr + 0.5 * dt - delays[d], i, history_f, t0);
                 }
                 k3 = delay_f_m(t_curr + 0.5 * dt, y_k3, y_delayed_all);
 
@@ -455,7 +455,7 @@ inline SolverResults adams_bashforth_moulton_solver_dde(const SolverParameters& 
 
                 for (size_t d = 0; d < num_delay; ++d)
                 {
-                    y_delayed_all[d] = interpolate_delay(solution, time_points, t_curr + dt - delays[d], i, history_f, t0);
+                    y_delayed_all[d] = interpolate_delay(solution, timePoints, t_curr + dt - delays[d], i, history_f, t0);
                 }
                 k4 = delay_f_m(t_curr + dt, y_k4, y_delayed_all);
             }
@@ -467,7 +467,7 @@ inline SolverResults adams_bashforth_moulton_solver_dde(const SolverParameters& 
             y_next[j] += (dt / 6.0) * (k1[j] + 2.0 * k2[j] + 2.0 * k3[j] + k4[j]);
         
         solution[i + 1] = y_next;
-        time_points[i + 1] = t_curr + dt;
+        timePoints[i + 1] = t_curr + dt;
 
         hist_idx += 1;
     }
@@ -479,7 +479,7 @@ inline SolverResults adams_bashforth_moulton_solver_dde(const SolverParameters& 
     auto f_corr = dMatrix(order + 1, dVec(N));
     for (size_t i = pre_idx; i < num_steps; ++i)
     {
-        const double t_curr = time_points[i];
+        const double t_curr = timePoints[i];
         const double t_next = t_curr + dt;
         const dVec   y_curr = solution[i];
 
@@ -495,7 +495,7 @@ inline SolverResults adams_bashforth_moulton_solver_dde(const SolverParameters& 
             solution[i + 1][j] = y_curr[j] + dt * increment;
         }
 
-        time_points[i + 1] = t_next;
+        timePoints[i + 1] = t_next;
 
         // Corrector (Adams-Moulton)
         for (int k = 0; k < order; ++k)
@@ -506,14 +506,14 @@ inline SolverResults adams_bashforth_moulton_solver_dde(const SolverParameters& 
             // Evaluate DDE derivative at (t_next, solution[i + 1])
             if (num_delay == 1 && delay_f)
             {
-                y_delayed = interpolate_delay(solution, time_points, t_next - delays[0], i + 1, history_f, t0);
+                y_delayed = interpolate_delay(solution, timePoints, t_next - delays[0], i + 1, history_f, t0);
                 f_corr[order] = delay_f(t_next, solution[i + 1], y_delayed);
             }
             else if (num_delay > 1 && delay_f_m)
             {
                 for (size_t d = 0; d < num_delay; ++d)
                 {
-                    y_delayed_all[d] = interpolate_delay(solution, time_points, t_next - delays[d], i + 1, history_f, t0);
+                    y_delayed_all[d] = interpolate_delay(solution, timePoints, t_next - delays[d], i + 1, history_f, t0);
                 }
                 f_corr[order] = delay_f_m(t_next, solution[i + 1], y_delayed_all);
             }
@@ -537,14 +537,14 @@ inline SolverResults adams_bashforth_moulton_solver_dde(const SolverParameters& 
         // Compute final derivative for next step's history
         if (num_delay == 1 && delay_f)
         {
-            y_delayed = interpolate_delay(solution, time_points, t_next - delays[0], i + 1, history_f, t0);
+            y_delayed = interpolate_delay(solution, timePoints, t_next - delays[0], i + 1, history_f, t0);
             f_hist[order - 1] = delay_f(t_next, solution[i + 1], y_delayed);
         }
         else if (num_delay > 1 && delay_f_m)
         {
             for (size_t d = 0; d < num_delay; ++d)
             {
-                y_delayed_all[d] = interpolate_delay(solution, time_points, t_next - delays[d], i + 1, history_f, t0);
+                y_delayed_all[d] = interpolate_delay(solution, timePoints, t_next - delays[d], i + 1, history_f, t0);
             }
             f_hist[order - 1] = delay_f_m(t_next, solution[i + 1], y_delayed_all);
         }
@@ -552,7 +552,7 @@ inline SolverResults adams_bashforth_moulton_solver_dde(const SolverParameters& 
 
     auto results        = SolverResults{};
     results.solution    = solution;
-    results.time_points = time_points;
+    results.timePoints = timePoints;
     return results;
 }
 
@@ -573,13 +573,13 @@ inline dMatrix adams_bashforth_moulton_solver_dde(
     auto params                   = SolverParameters{};
     params.derivative             = deriv;
     params.delay_derivative       = dderiv;
-    params.delay_derivative_multi = dderivm;
-    params.initial_conditions     = y0;
+    params.delayDerivativeMulti = dderivm;
+    params.initialConditions     = y0;
     params.t0                     = t0;
     params.t1                     = t1;
     params.dt                     = dt;
     params.order                  = order;
-    params.history_function       = history_f;
+    params.historyFunction       = history_f;
     params.iterations             = corrector_iters;
     return adams_bashforth_moulton_solver_dde(params).solution;
 }

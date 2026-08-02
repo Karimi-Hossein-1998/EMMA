@@ -1,4 +1,5 @@
 #include "AppState.hpp"
+#include "implot.h"
 #include <cstring>
 int main()
 {
@@ -8,12 +9,14 @@ int main()
     appState.initH = 600;
     appState.appTitle = "EMMA - Easy Mathematical Modelling App!";
     appState.BgColor = Color(15.0f,15.0f,15.0f);
+    appState.DarkTheme = true;
 
     InitWindow(appState.initW,appState.initH,appState.appTitle.c_str());
     SetTargetFPS(60);
 
     // rlImGuiSetup(true);
-    initUI(true);
+    initUI(appState.DarkTheme);
+    ImPlot::CreateContext();
 
 
     while(!WindowShouldClose())
@@ -29,6 +32,7 @@ int main()
         EndDrawing();
     }
 
+    ImPlot::DestroyContext();
     rlImGuiShutdown();
     CloseWindow();
 
