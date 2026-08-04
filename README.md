@@ -7,8 +7,8 @@ This project aims to create a **_G_**_raphical_ **_U_**_ser_ **_I_**_nterface_ f
 + Added Model Picker. (*General Kuramoto Variation*,*Kuramoto Variation (using Sparse adjacency)*, *Special Kuramoto Variant (Without adjacency)*).
 + Added Initial Value Picker. (For *Kuramoto* models, two initial arrays are needed. Initial phases, and intrinsic frequencies.), (The two *Kuramoto* variants need an adjacency matrix.)
 + Added Network Structure Picker. (For *Kuramoto* models).
-+ Added Solver Model Picker (Not complete yet!).
-+ Added Live Plotting (Not complete yet!).
++ Added Solver Model Picker (Kinda Complete!). RK1 (Euler), RK2 (midpoint), RK3, RK4 (standard), RK4 (3/8), RK4 (Gill), RK4 (Ralston).
++ Added Live Plotting (Kinda Complete!).
 
 ## TODO
 

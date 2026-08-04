@@ -7,9 +7,11 @@
 #include "BrawlerRegular.hpp"
 #include "BNSCRegular.hpp"
 #include "CSRegular.hpp"
+#include "NSMR.hpp"
 
 struct AppFonts
 {
+    ImFont* NotoSansMath = nullptr;
 	ImFont* inter = nullptr;
 	ImFont* bonanova = nullptr;
 	ImFont* brawler = nullptr;
@@ -128,6 +130,12 @@ inline void initUI(bool darkTheme)
     config.OversampleV = 1;
     config.PixelSnapH = true;
 
+    g_FONTs.NotoSansMath = io.Fonts->AddFontFromMemoryTTF(
+        (void*)assets_fonts_NotoSansMath_Regular_ttf,
+        assets_fonts_NotoSansMath_Regular_ttf_len,
+        24.0f,
+        &config
+    );
     g_FONTs.inter = io.Fonts->AddFontFromMemoryTTF(
         (void*)assets_fonts_Inter_opsz_wght__ttf,
         assets_fonts_Inter_opsz_wght__ttf_len,
@@ -152,7 +160,7 @@ inline void initUI(bool darkTheme)
         18.0f,
         &config
     );
-    ImFont* customFont = g_FONTs.inter;
+    ImFont* customFont = g_FONTs.NotoSansMath;
     if (customFont!=nullptr)
     {
         io.FontDefault = customFont;
@@ -172,6 +180,8 @@ inline void DrawFontMenu()
     ImGuiIO& io = ImGui::GetIO();
     if (ImGui::BeginMenu("Font"))
     {
+        bool isNotoSansMathActive = (io.FontDefault==g_FONTs.NotoSansMath);
+        if (ImGui::MenuItem("Noto Sans Math Regular", nullptr,isNotoSansMathActive)) io.FontDefault=g_FONTs.NotoSansMath;
         bool isInterActive = (io.FontDefault==g_FONTs.inter);
         if (ImGui::MenuItem("Inter Regular (Default)",nullptr,isInterActive)) io.FontDefault=g_FONTs.inter;
         bool isBonaNovaActive = (io.FontDefault==g_FONTs.bonanova);

@@ -10,7 +10,10 @@ endif()
 include(FetchContent)
 
 set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-
+# set(USE_WAYLAND ON CACHE BOOL "Use Wayland" FORCE)
+# set(USE_X11 OFF CACHE BOOL "Use X11" FORCE)
+# set(GLFW_BUILD_WAYLAND ON CACHE BOOL "" FORCE)
+# set(GLFW_BUILD_X11 OFF CACHE BOOL "" FORCE)
 add_subdirectory(vendor/raylib)
 
 add_library(imgui STATIC

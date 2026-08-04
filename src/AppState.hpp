@@ -3,13 +3,17 @@
 #include "MM/models/kuramoto/sparse.hpp"
 #include "MM/models/kuramoto/special.hpp"
 #include "MM/solvers/ODE/rk/explicit/rk1-solver.hpp"
+#include "MM/solvers/ODE/rk/explicit/rk2-solver.hpp"
+#include "MM/solvers/ODE/rk/explicit/rk3-solver.hpp"
 #include "MM/solvers/ODE/rk/explicit/rk4-solver.hpp"
+#include "MM/solvers/ODE/rk/explicit/rk4-variants.hpp"
 #include "MM/typedefs/header.hpp"
 #include "MM/initializers/initials.hpp"
 #include "MM/network/topology.hpp"
 #include "MM/models/kuramoto/general.hpp"
 #include "MM/models/kuramoto/sparse.hpp"
 #include "MM/models/kuramoto/special.hpp"
+#include "imgui_internal.h"
 #include "raylib.h"
 #include <atomic>
 #ifdef PI
@@ -23,13 +27,35 @@
 #include <cstring>
 #include <string>
 #include <mutex>
-
+#include <atomic>
 using SolverFunc = std::function<MathEngine::SolverResults(const MathEngine::SolverParameters&)>;
-
-
 inline SolverFunc rk1_wrapper()
 {
     return [](const MathEngine::SolverParameters& Params) {return MathEngine::rk1_solver(Params);};
+}
+inline SolverFunc rk2_wrapper()
+{
+    return [](const MathEngine::SolverParameters& Params) {return MathEngine::rk2_solver(Params);};
+}
+inline SolverFunc rk3_wrapper()
+{
+    return [](const MathEngine::SolverParameters& Params) {return MathEngine::rk3_solver(Params);};
+}
+inline SolverFunc rk4_wrapper()
+{
+    return [](const MathEngine::SolverParameters& Params) {return MathEngine::rk4_solver(Params);};
+}
+inline SolverFunc rk4_38_wrapper()
+{
+    return [](const MathEngine::SolverParameters& Params) {return MathEngine::rk4_38_solver(Params);};
+}
+inline SolverFunc rk4_ralston_wrapper()
+{
+    return [](const MathEngine::SolverParameters& Params) {return MathEngine::rk4_ralston_solver(Params);};
+}
+inline SolverFunc rk4_gill_wrapper()
+{
+    return [](const MathEngine::SolverParameters& Params) {return MathEngine::rk4_gill_solver(Params);};
 }
 
 enum class ModelType
@@ -81,8 +107,8 @@ struct GeneralModelParams
     ModelType modelType = ModelType::Kuramoto;
     KuramotoType kuramotoType = KuramotoType::KuramotoGeneral;
 	size_t N = 50;
-    size_t nModules = 2;
-    size_t sModules = 25;
+    size_t nModules = 1;
+    size_t sModules = 50;
     double K = 1.0;
     double Q = 0.5;
     double alpha = 0.0;
@@ -133,11 +159,22 @@ struct PlotParams
 {
     MathEngine::OneStepSolverResult liveSolverRes;
 	std::mutex plotMutex;
-    MathEngine::dVec liveTimePoints;
-    MathEngine::dMatrix liveTrajectories;
-    MathEngine::dVec intermediaryState = {};
-    MathEngine::dVec plotX;
-    MathEngine::dVec plotY;
+    int Stride = 50;
+    int trailCount = 5000;
+    bool showPlot = false;
+    bool showPlotSecond = false;
+    bool showPlotThird = false;
+    size_t offset = 0;
+    MathEngine::Vec<ImVec4> plotColors;
+    MathEngine::Vec<ImVec4> plotSecondColors;
+    MathEngine::Vec<ImVec4> plotThirdColors;
+    MathEngine::dVec liveTimePoints = {};
+    MathEngine::dVec liveState = {};
+    MathEngine::dVec plotX = {};
+    MathEngine::dVec plotY = {};
+    MathEngine::dVec plotXTrail = {};
+    MathEngine::dVec plotYTrail = {};
+    MathEngine::dMatrix plotYModules;
 };
 ////////////////////////////////////
 /////                          /////
@@ -147,6 +184,9 @@ struct PlotParams
 class AppState
 {
 	public:
+        std::atomic<float> simProgress{0.0f};
+        std::atomic<double> timeInv{0.0f};
+        std::atomic<bool> isSimRunning{false};
         float padding = 10.0f;
         Color BgColor = Color(15.0f,15.0f,15.0f);
         size_t initW = 800;
@@ -164,12 +204,8 @@ class AppState
         SolverParams solverParams;
         PlotParams plotParams;
 
-
         MathEngine::dMatrix adj; // Adjacency (for any system that might need it)
         MathEngine::SparsedMatrix sparseAdj = MathEngine::SparsedMatrix(modelParams.N); // Sparse adjacency
-        MathEngine::dVec intermediaryState = {};
-        MathEngine::dVec runtimeX;
-        MathEngine::dVec runtimeY;
         MathEngine::dVec delayTimes = {0.0};
         inline void RenderUI()
         {
@@ -205,28 +241,29 @@ class AppState
                     if (ImGui::BeginTabItem("Solver Parameters"))
                     {
                         DrawSolverParametersPanelContent();
-                        if (ImGui::Button("Show Plot", ImVec2(-1,0))) showPlot=true;
-                        // if (ImGui::Button("Run", ImVec2(-1,0))) runSimulation=true;
-                        if (ImGui::Button("Run", ImVec2(-1,0))) StartSimulation();
-                        // if (runSimulation) {runSimulation=false;StartSimulation();}
+                        ImGui::EndTabItem();
+                    }
+                    if (ImGui::BeginTabItem("Plot Parameters"))
+                    {
+                        DrawPlotPanelContent();
+                        ImGui::EndTabItem();
+                    }
+                    if (ImGui::BeginTabItem("Run Simulation"))
+                    {
+                        DrawProgressBar();
+                        ImGui::Spacing();
+                        bool running = isSimRunning.load();
+                        if (running) ImGui::BeginDisabled();
+                        if (ImGui::Button(running?"Simulating...":"Begin Simulation",ImVec2(-1,0))) StartSimulation();
+                        if (running) ImGui::EndDisabled();
                         ImGui::EndTabItem();
                     }
                     ImGui::EndTabBar();
                 }
             }
             ImGui::End();
-            if (showPlot)
-            {
-                const ImGuiViewport* viewport = ImGui::GetMainViewport();
-                ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + 0.52*viewport->WorkSize.x - padding, viewport->WorkPos.y + padding),ImGuiCond_Appearing);
-                ImGui::SetNextWindowSize(ImVec2(viewport->WorkSize.x * 0.48f, 0.5*viewport->WorkSize.y - (2 * padding)), ImGuiCond_Appearing);
-                if (ImGui::Begin("Sim Viz!",&showPlot))
-                {
-                    DrawPlotWindow();
-                }
-                ImGui::End();
-            }
             RenderModals();
+            DrawPlotWindow();
         }
         inline void drawTopMenuBar()
         {
@@ -249,7 +286,7 @@ class AppState
             "Erdos-Renyi (True Count)","Erdos-Renyi (Symmetric)", "Erdos-Renyi (Symmetric True Count)",
             "Small World", "Small World (Directed)", "Modular", "Hierarchical"};
         static constexpr const char* dsStateNames[] = {"Random Uniform", "Random Normal", "Random Cauchy",
-            "Random Exponential", "Random Circle", "Splay", "Splay Perturbed", "Identical Modules"};
+            "Random Exponential", "Random Circle", "Splay", "Splay Perturbed", "Modules (by type)"};
         static constexpr const char* moduleTypeNames[] = {"Random Uniform", "Random Normal", "Random Cauchy",
             "Random Exponential", "Random Circle", "Splay", "Splay Perturbed"};
         static constexpr const char* moduleTypeIds[] = {"uniform", "normal", "cauchy", "exponential",
@@ -265,6 +302,8 @@ class AppState
 		inline void RenderModals();
         inline void DrawPlotWindow();
         inline void StartSimulation();
+        inline void DrawProgressBar();
+        inline void DrawPlotPanelContent();
 };
 
 inline void AppState::DrawModelPanelContent()
@@ -628,12 +667,25 @@ inline void AppState::DrawSolverParametersPanelContent()
         case SolverMethod::RK1:
             solverParams.solverFunc = rk1_wrapper();
             break;
+        case SolverMethod::RK2:
+            solverParams.solverFunc = rk2_wrapper();
+        case SolverMethod::RK3:
+	        solverParams.solverFunc = rk3_wrapper();
+        case SolverMethod::RK4:
+            solverParams.solverFunc = rk4_wrapper();
+        case SolverMethod::RK4_38:
+            solverParams.solverFunc = rk4_38_wrapper();
+        case SolverMethod::RK4_Gill:
+            solverParams.solverFunc = rk4_gill_wrapper();
+        case SolverMethod::RK4_Ralston:
+            solverParams.solverFunc = rk4_ralston_wrapper();
         default:
             solverParams.solverFunc = rk1_wrapper();
             break;
     }
     ImGui::Spacing();
     ImGui::Separator();
+    ImGui::Spacing();
     if (ImGui::CollapsingHeader("Time & Basic Stepping", ImGuiTreeNodeFlags_DefaultOpen))
     {
         ImGui::InputDouble("Start Time (t0)", &solverParams.solverParams.t0, 0.0001, 0.1, "%.15g");
@@ -744,7 +796,7 @@ inline void AppState::RenderModals()
             else
             {
                 ImGuiTableFlags tableFlags = ImGuiTableFlags_ScrollX | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit;
-                if (ImGui::BeginTable("MatrixGrid", static_cast<int>(nCols + 1), tableFlags, ImVec2(0, 340)))
+                if (ImGui::BeginTable("MatrixGrid", static_cast<int>(nCols + 1), tableFlags, ImVec2(0, 360)))
                 {
                     ImGui::TableSetupScrollFreeze(1, 1);
                     ImGui::TableSetupColumn("Row\\Col", ImGuiTableColumnFlags_NoHide);
@@ -782,7 +834,7 @@ inline void AppState::RenderModals()
         ImGui::SetNextWindowSize(ImVec2(400, 400), ImGuiCond_Appearing);
         if (ImGui::Begin("Phase Array Values", &phaseParams.showArray))
         {
-            if (ImGui::BeginChild("PhaseList", ImVec2(0, 300), ImGuiChildFlags_Borders))
+            if (ImGui::BeginChild("PhaseList", ImVec2(0, 360), ImGuiChildFlags_Borders))
             {
                 if (modelParams.iPhase.empty())
                 {
@@ -807,7 +859,7 @@ inline void AppState::RenderModals()
         ImGui::SetNextWindowSize(ImVec2(400, 400), ImGuiCond_Appearing);
         if (ImGui::Begin("Frequency Array Values", &frqncParams.showArray))
         {
-            if (ImGui::BeginChild("FreqList", ImVec2(0, 300), ImGuiChildFlags_Borders))
+            if (ImGui::BeginChild("FreqList", ImVec2(0, 360), ImGuiChildFlags_Borders))
             {
                 if (modelParams.iFrqnc.empty())
                 {
@@ -837,7 +889,7 @@ inline void AppState::RenderModals()
             ImGui::Spacing();
 
             // Scrollable child box for array elements
-            if (ImGui::BeginChild("ArrayList", ImVec2(0, 340), ImGuiChildFlags_Borders))
+            if (ImGui::BeginChild("ArrayList", ImVec2(0, 360), ImGuiChildFlags_Borders))
             {
                 if (solverParams.solverParams.delayTimes.empty())
                 {
@@ -856,69 +908,294 @@ inline void AppState::RenderModals()
             ImGui::Spacing();
             ImGui::Separator();
             ImGui::Spacing();
-
-            // Close Button
-            if (ImGui::Button("Close", ImVec2(-1, 0)))
-            { // -1 fills full width
-                showDelays = false;
-            }
         }
         ImGui::End();
     }
 }
 
-inline void AppState::DrawPlotWindow()
-{
-    std::lock_guard<std::mutex> lock(plotParams.plotMutex);
-    ImVec2 availableSpace = ImGui::GetContentRegionAvail();      // Set ImVec(-1,-1) to fill the whole window.
-    if (ImPlot::BeginPlot("Order (Time Evolution)!",availableSpace))
-    {
-        ImPlot::SetupAxes("Time (t)","Order ()");
-        ImPlot::PlotLine("Order",plotParams.plotX.data(),plotParams.plotY.data(),static_cast<int>(plotParams.plotX.size()));
-        // ImPlot::PlotScatter("Points 1",runtimeX.data(),runtimeY.data(),static_cast<int>(runtimeX.size()));
-
-        ImPlot::EndPlot();
-    }
-}
-
 inline void AppState::StartSimulation()
 {
-    constexpr size_t Stride = 25;
+    simProgress.store(0.0f);
+    isSimRunning.store(true);
+    timeInv.store(static_cast<float>(1.0/std::abs(solverParams.solverParams.t1-solverParams.solverParams.t0)));
+    // constexpr size_t Stride = 25;
     const size_t vectorSize = static_cast<size_t>((solverParams.solverParams.t1-solverParams.solverParams.t0)/solverParams.solverParams.dt);
-	const size_t expectedSize = vectorSize*2+100;
-    const size_t plotExpectedSize = static_cast<int>(vectorSize/Stride);
+    const size_t plotExpectedSize = static_cast<size_t>(vectorSize/plotParams.Stride)*2+100;
     {
 		std::lock_guard<std::mutex> lock(plotParams.plotMutex);
         plotParams.liveTimePoints.clear();
-        plotParams.liveTrajectories.assign(modelParams.N,MathEngine::dVec());
-        runtimeX.clear();
-        runtimeY.clear();
-		runtimeX.reserve(expectedSize);
-        runtimeY.reserve(expectedSize);
+        plotParams.liveState.clear();
         plotParams.plotX.clear();
         plotParams.plotY.clear();
         plotParams.plotX.reserve(plotExpectedSize);
         plotParams.plotY.reserve(plotExpectedSize);
+        plotParams.plotXTrail.clear();
+        plotParams.plotYTrail.clear();
+        plotParams.plotYModules.clear();
+        plotParams.plotYModules.clear();
+        plotParams.plotYModules = MathEngine::dMatrix(modelParams.nModules,MathEngine::dVec());
+        plotParams.offset = 0;
     }
-    solverParams.solverParams.onStep = [this, stepCount=0, Stride](const MathEngine::OneStepSolverResult& res) mutable
+    int stride = plotParams.Stride;
+    bool condPlotThird = (modelParams.kuramotoType==KuramotoType::KuramotoSpecial || adjParams.adjState==NetworkTopology::Modular ||
+    					adjParams.adjState==NetworkTopology::Hierarchical);
+    solverParams.solverParams.onStep = [this, stepCount=0, stepCountCond=0, stride, condPlotThird](const MathEngine::OneStepSolverResult& res) mutable
     {
-        double rSine = 0.0, rCosine = 0.0, rho = 0.0;
+		float progress = (res.timePoint-solverParams.solverParams.t0)*timeInv;
         std::lock_guard<std::mutex> lock(plotParams.plotMutex);
+        simProgress.store(progress);
+        double rSine = 0.0, rCosine = 0.0, rho = 0.0;
+        MathEngine::dVec rMSine(modelParams.nModules,0.0);
+        MathEngine::dVec rMCosine(modelParams.nModules,0.0);
+        MathEngine::dVec rhoM(modelParams.nModules,0.0);
         plotParams.liveTimePoints.push_back(res.timePoint);
-        for (size_t i=0; i<res.sol.size(); ++i)
+        plotParams.liveState = res.sol;
+        if (condPlotThird)
         {
-            plotParams.liveTrajectories[i].push_back(res.sol[i]);
-            rSine += sin(res.sol[i]); rCosine += cos(res.sol[i]);
+            for (size_t i=0; i<modelParams.nModules; ++i)
+            {
+                for (size_t j=0; j<modelParams.sModules; ++j)
+                {
+                    rMSine[i] += sin(res.sol[i*modelParams.sModules+j]);
+                    rMCosine[i] += cos(res.sol[i*modelParams.sModules+j]);
+                }
+                rSine += rMSine[i]; rCosine += rMCosine[i]; rMSine[i] /=modelParams.sModules; rMCosine[i] /= modelParams.sModules;
+                rhoM[i] = sqrt(rMSine[i]*rMSine[i]+rMCosine[i]*rMCosine[i]);
+            }
+            rSine /= modelParams.N; rCosine /= modelParams.N;
+            rho = sqrt(rSine*rSine+rCosine*rCosine);
+            if (++stepCountCond%stride==0)
+            {
+                for (size_t i=0; i<modelParams.nModules; ++i)
+                {
+                    plotParams.plotYModules[i].push_back(rhoM[i]);
+                }
+            }
         }
-        rho = sqrt(std::pow(rCosine/modelParams.N,2)+std::pow(rSine/modelParams.N,2));
-        printf("Time: %.15g", res.timePoint);
-        runtimeX.push_back(res.timePoint);
-        runtimeY.push_back(rho);
-        if (++stepCount%Stride==0)
+        else
+        {
+            for (size_t i=0; i<res.sol.size(); ++i)
+            {
+                rSine += sin(res.sol[i]); rCosine += cos(res.sol[i]);
+            }
+            rSine /= modelParams.N; rCosine /= modelParams.N;
+            rho = sqrt(rSine*rSine+rCosine*rCosine);
+        }
+        if (plotParams.plotXTrail.size()<plotParams.trailCount)
+        {
+            plotParams.plotXTrail.push_back(res.timePoint);
+            plotParams.plotYTrail.push_back(rho);
+        }
+        else
+        {
+            plotParams.plotXTrail[plotParams.offset] = res.timePoint;
+            plotParams.plotYTrail[plotParams.offset] = rho;
+            plotParams.offset = static_cast<size_t>((plotParams.offset+1) % plotParams.trailCount);
+        }
+        if (++stepCount%stride==0)
         {
             plotParams.plotX.push_back(res.timePoint);
             plotParams.plotY.push_back(rho);
         }
     };
-    std::thread([this](){solverParams.solverResults = solverParams.solverFunc(solverParams.solverParams);}).detach();
+    std::thread([this]()
+    {
+        solverParams.solverResults = solverParams.solverFunc(solverParams.solverParams);
+        simProgress.store(1.0);
+        isSimRunning.store(false);
+    }).detach();
+}
+
+inline void AppState::DrawProgressBar()
+{
+    float progress = simProgress.load();
+    bool running = isSimRunning.load();
+    char overlayBuf[64];
+    if (running)
+    {
+        snprintf(overlayBuf,sizeof(overlayBuf),"Running... %.1f%%",progress*100.0f);
+    }
+    else if (progress>=1.0f)
+    {
+        snprintf(overlayBuf,sizeof(overlayBuf),"Completed 100%%");
+    }
+    else
+    {
+        snprintf(overlayBuf,sizeof(overlayBuf),"Idle 0.0%%");
+    }
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding,6.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize,1.0f);
+    ImGui::PushStyleColor(ImGuiCol_PlotHistogram,ImVec4(0.15f,0.9f,0.6f,1.0f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBg,ImVec4(0.05f,0.3f,0.2f,1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Border,ImVec4(0.25f,0.25,0.3f,1.0f));
+    ImGui::ProgressBar(progress,ImVec2(-1.0f,25.0f),overlayBuf);
+    ImGui::PopStyleColor(3);
+    ImGui::PopStyleVar(2);
+}
+
+inline void AppState::DrawPlotWindow()
+{
+    std::lock_guard<std::mutex> lock(plotParams.plotMutex);
+    if (modelParams.modelType==ModelType::Kuramoto)
+    {
+        if (plotParams.showPlot)
+        {
+            const ImGuiViewport* viewport = ImGui::GetMainViewport();
+            ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + 0.52*viewport->WorkSize.x - padding, viewport->WorkPos.y + padding),ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(viewport->WorkSize.x * 0.48f, 0.75*viewport->WorkSize.y - (2 * padding)), ImGuiCond_FirstUseEver);
+            if (ImGui::Begin("Order Parameter",&plotParams.showPlot))
+            {
+                ImVec2 availableSpace = ImGui::GetContentRegionAvail();      // Set ImVec(-1,-1) to fill the whole window.
+                if (ImPlot::BeginSubplots("##Plot-now", 2, 1, availableSpace))
+                {
+                    if (ImPlot::BeginPlot("(\U0001D70C-t) Plot"))
+                    {
+                        ImPlot::SetupAxes("Time (t)","Order (\U0001D70C)");
+                        ImPlot::PlotLine("\U0001D70C",plotParams.plotX.data(),plotParams.plotY.data(),static_cast<int>(plotParams.plotX.size()));
+                        // ImPlot::PlotScatter("Points 1",runtimeX.data(),runtimeY.data(),static_cast<int>(runtimeX.size()));
+                        ImPlot::EndPlot();
+                    }
+                    if (ImPlot::BeginPlot("(\U0001D70C-t) Plot##trailing"))
+                    {
+                        ImPlotSpec spec;
+                        spec.Offset = static_cast<int>(plotParams.offset);
+                        ImPlot::SetupAxes("Time (t)","Order (\U0001D70C)");
+                        ImPlot::PlotLine("\U0001D70C",plotParams.plotXTrail.data(),plotParams.plotYTrail.data(),static_cast<int>(plotParams.plotXTrail.size()),spec);
+                        ImPlot::EndPlot();
+                    }
+                    ImPlot::EndSubplots();
+                }
+            }
+            ImGui::End();
+        }
+        if (plotParams.showPlotSecond)
+        {
+            const ImGuiViewport* viewport = ImGui::GetMainViewport();
+            ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x+padding,viewport->WorkPos.y+0.25*viewport->WorkSize.y+padding),ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(viewport->WorkSize.x*0.48f, 0.75*viewport->WorkSize.y-(2*padding)), ImGuiCond_FirstUseEver);
+            if (ImGui::Begin("Oscillators",&plotParams.showPlotSecond))
+            {
+                size_t plotN = plotParams.liveState.size();
+                ImVec2 availableSpace = ImGui::GetContentRegionAvail();      // Set ImVec(-1,-1) to fill the whole window.
+                MathEngine::dVec xTheta(plotN);
+                MathEngine::dVec yTheta(plotN);
+                for (size_t i=0; i<plotN; ++i)
+                {
+                    xTheta[i] = cos(plotParams.liveState[i]);
+                    yTheta[i] = sin(plotParams.liveState[i]);
+                }
+                if (ImPlot::BeginPlot("\U0001D73D Plot",availableSpace))
+                {
+                    ImPlot::SetupAxes("x projection","y projection");
+                    // ImPlot::PlotLine("\U0001D70C",plotParams.plotX.data(),plotParams.plotY.data(),static_cast<int>(plotParams.plotX.size()));
+                    ImPlot::PlotScatter("\U0001D73D",xTheta.data(),yTheta.data(),static_cast<int>(plotN));
+                    ImPlot::EndPlot();
+                }
+            }
+            ImGui::End();
+        }
+        if (plotParams.showPlotThird)
+        {
+            const ImGuiViewport* viewport = ImGui::GetMainViewport();
+            ImVec2 center = viewport->GetCenter();
+            ImGui::SetNextWindowPos(center, ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
+            ImGui::SetNextWindowSize(ImVec2(400, 200), ImGuiCond_FirstUseEver);
+            if (ImGui::Begin("Order Parameter (Modules)##mocules",&plotParams.showPlotThird))
+            {
+                ImVec2 availableSpace = ImGui::GetContentRegionAvail();      // Set ImVec(-1,-1) to fill the whole window.
+                if (plotParams.plotYModules.empty() || plotParams.plotYModules.size()!=modelParams.nModules)
+                {
+                    if (ImPlot::BeginPlot("(\U0001D70C-t) Plot##modules",availableSpace))
+                    {
+                        ImPlot::EndPlot();
+                    }
+                }
+                else
+                {
+                    if (ImPlot::BeginPlot("(\U0001D70C-t) Plot##modules",availableSpace))
+                    {
+                        ImPlot::SetupAxes("Time (t)","Order (\U0001D70C)##modules");
+                        std::string label = "\U0001D70C";
+                        for (size_t i=0; i<modelParams.nModules; ++i)
+                        {
+                            label = "\U0001D70C "+std::to_string(i);
+                            ImPlot::PlotLine(label.c_str(),plotParams.plotX.data(),plotParams.plotYModules[i].data(),
+                                            static_cast<int>(plotParams.plotX.size()));
+                        }
+                        ImPlot::EndPlot();
+                    }
+                }
+            }
+            ImGui::End();
+        }
+    }
+}
+
+inline void AppState::DrawPlotPanelContent()
+{
+    if (modelParams.modelType==ModelType::Kuramoto)
+    {
+        ImGui::SeparatorText("Plot Data Style");
+        if (ImGui::CollapsingHeader("\U0001D70C-t Plot##main plot"))
+        {
+            if (ImGui::InputInt("Stride##main plot",&plotParams.Stride,1,10)) plotParams.Stride = std::max(plotParams.Stride,10);
+            if (ImGui::InputInt("Trailing Data Count##main plot",&plotParams.trailCount,1,10)) plotParams.trailCount = std::clamp(plotParams.trailCount,100,10000);
+            ImGui::Checkbox("Show \U0001D70C-t Plot##main plot", &plotParams.showPlot);
+            ImGui::Spacing();
+            ImGui::SeparatorText("Line Color##main plot");
+            ImGui::Spacing();
+            float colorR=0.2f, colorG=0.5f, colorB=0.5f, colorA=1.0f;
+            ImGui::SliderFloat("R##main plot line", &colorR,0.0f,1.0f,"%.2f");
+            ImGui::SliderFloat("G##main plot line", &colorG,0.0f,1.0f,"%.2f");
+            ImGui::SliderFloat("B##main plot line", &colorB,0.0f,1.0f,"%.2f");
+            ImGui::SliderFloat("A (opacity)##main plot line", &colorA,0.0f,1.0f,"%.2f");
+            if (ImGui::Button("Set Color(s)##main plot",ImVec2(-1,0))) plotParams.plotColors.push_back(ImVec4(colorR,colorG,colorB,colorA));
+        }
+        if (ImGui::CollapsingHeader("\U0001D73D Plot##second plot"))
+        {
+            ImGui::Checkbox("Show \U0001D73D Plot##second plot", &plotParams.showPlotSecond);
+            ImGui::Spacing();
+            ImGui::SeparatorText("Line Color##second plot");
+            ImGui::Spacing();
+            float colorR=0.2f, colorG=0.5f, colorB=0.5f, colorA=1.0f;
+            ImGui::SliderFloat("R##second plot line", &colorR,0.0f,1.0f,"%.2f");
+            ImGui::SliderFloat("G##second plot line", &colorG,0.0f,1.0f,"%.2f");
+            ImGui::SliderFloat("B##second plot line", &colorB,0.0f,1.0f,"%.2f");
+            ImGui::SliderFloat("A (opacity)##second plot line", &colorA,0.0f,1.0f,"%.2f");
+            if (ImGui::Button("Set Color(s)##second plot",ImVec2(-1,0)))
+                plotParams.plotSecondColors.push_back(ImVec4(colorR,colorG,colorB,colorA));
+        }
+        if (adjParams.adjState==NetworkTopology::Modular || adjParams.adjState==NetworkTopology::Hierarchical || modelParams.kuramotoType==KuramotoType::KuramotoSpecial)
+        {
+            if (ImGui::CollapsingHeader("\U0001D73D Plot (Modules)##third plot"))
+            {
+                ImGui::Checkbox("Show \U0001D73D Plot##third plot", &plotParams.showPlotThird);
+                ImGui::Spacing();
+                ImGui::SeparatorText("Line Color##third plot");
+                ImGui::Spacing();
+                size_t nM = modelParams.nModules;
+                MathEngine::Vec<float> colorAs(nM);MathEngine::Vec<float> colorRs(nM);
+                MathEngine::Vec<float> colorGs(nM);MathEngine::Vec<float> colorBs(nM);
+                for (size_t i=0; i<nM; ++i)
+                {
+                    std::string rLabel = "R ("+std::to_string(i+1)+")##third plot line";
+                    std::string gLabel = "G ("+std::to_string(i+1)+")##third plot line";
+                    std::string bLabel = "B ("+std::to_string(i+1)+")##third plot line";
+                    std::string aLabel = "A ("+std::to_string(i+1)+")##third plot line";
+                    ImGui::SliderFloat(rLabel.c_str(), &colorRs[i],0.0f,1.0f,"%.2f");
+                    ImGui::SliderFloat(gLabel.c_str(), &colorGs[i],0.0f,1.0f,"%.2f");
+                    ImGui::SliderFloat(bLabel.c_str(), &colorBs[i],0.0f,1.0f,"%.2f");
+                    ImGui::SliderFloat(aLabel.c_str(), &colorAs[i],0.0f,1.0f,"%.2f");
+					ImGui::Separator();
+                }
+                if (ImGui::Button("Set Color(s)##third plot",ImVec2(-1,0)))
+                {
+                    for (size_t i=0; i<nM; ++i)
+                    {
+                        plotParams.plotThirdColors.push_back(ImVec4(colorRs[i],colorGs[i],colorBs[i],colorAs[i]));
+                    }
+                }
+            }
+        }
+    }
 }

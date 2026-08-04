@@ -270,18 +270,18 @@ inline dVec modules(
     {
         throw std::invalid_argument("[identical_modules] num_modules cannot be zero.");
     }
-    dVec results(0.0,N_per_module*num_modules);
+    dVec results(N_per_module*num_modules);
     if (identical)
     {
     	results = identical_modules(N_per_module, num_modules, dist_type, a, b, seed);
     }
     else
     {
-        dVec subResults(0.0,N_per_module);
+        dVec subResults(N_per_module);
 		for (size_t mOdule=0; mOdule<num_modules; ++mOdule)
         {
-            seed += mOdule;
-			subResults = module_by_condition(N_per_module,dist_type,a,b,seed);
+            // seed += mOdule;
+			subResults = module_by_condition(N_per_module,dist_type,a,b,seed+mOdule);
             for (size_t i=0; i<N_per_module; ++i)
             {
                 results[i+mOdule*N_per_module]=subResults[i];
