@@ -1,5 +1,6 @@
 #pragma once
 #include "../typedefs/header.hpp"
+#include <cstddef>
 
 namespace MathEngine
 { // namespace MathEngine
@@ -15,15 +16,9 @@ inline SparsedMatrix dense_to_sparse(const dMatrix &adj)
     size_t N = adj.size();
     SparsedMatrix sparse(N);
     for (size_t i = 0; i < N; ++i)
-    {
         for (size_t j = 0; j < N; ++j)
-        {
             if (adj[i][j] != 0.0)
-            {
                 sparse.rows[i].emplace_back(j, adj[i][j]);
-            }
-        }
-    }
     return sparse;
 }
 
@@ -35,21 +30,13 @@ inline SparsedMatrix dense_to_sparse(const dMatrix &adj)
 //   threshold: Minimum absolute value to consider an entry as nonzero (default 1e-12)
 // Returns:
 //   Density (fraction of nonzero off-diagonal entries)
-inline double density(
-    const dMatrix &adj,
-    double threshold = 1e-12)
+inline double density(const dMatrix &adj,double threshold = 1e-12)
 {
     size_t N = adj.size(), nonzero = 0, total = N * (N - 1);
     for (size_t i = 0; i < N; ++i)
-    {
         for (size_t j = 0; j < N; ++j)
-        {
             if (i != j && std::abs(adj[i][j]) > threshold)
-            {
                 ++nonzero;
-            }
-        }
-    }
     return total ? static_cast<double>(nonzero) / total : 0.0;
 }
 
@@ -67,7 +54,8 @@ inline std::pair<bool, double> dense_to_sparse_conditional(
     const dMatrix &adj,
     SparsedMatrix &sparse_adj,
     double density_threshold = 0.5,
-    double zero_threshold = 1e-12)
+    double zero_threshold = 1e-12
+)
 {
     size_t N = adj.size();
     auto density_measure = density(adj, zero_threshold);
@@ -109,20 +97,13 @@ inline dMatrix random(
 )
 {
     // Error Handling
-    if (N == 0)
-    {
-        throw std::invalid_argument("[random_dMatrix] Number of nodes N cannot be zero.");
-    }
-    if (min_weight > max_weight)
-    {
-        throw std::invalid_argument("[random_dMatrix] min_weight (" + std::to_string(min_weight) + ") cannot be greater than max_weight (" + std::to_string(max_weight) + ").");
-    }
-
+    if (N == 0) return {};
+    if (min_weight > max_weight) std::swap(min_weight,max_weight);
     // Original logic
-    std::mt19937                           rng(seed);
+    std::mt19937 rng(seed);
     // uniform_real_distribution handles min_weight == max_weight correctly.
     std::uniform_real_distribution<double> dist(min_weight, max_weight);
-    dMatrix                                 adj(N, dVec(N));
+    dMatrix adj(N, dVec(N));
     for (size_t i = 0; i < N; ++i)
     {
         for (size_t j = 0; j < N; ++j)
@@ -150,20 +131,14 @@ inline dMatrix random_symmetric(
 )
 {
     // Error Handling
-    if (N == 0)
-    {
-        throw std::invalid_argument("[random_dMatrix] Number of nodes N cannot be zero.");
-    }
-    if (min_weight > max_weight)
-    {
-        throw std::invalid_argument("[random_dMatrix] min_weight (" + std::to_string(min_weight) + ") cannot be greater than max_weight (" + std::to_string(max_weight) + ").");
-    }
+    if (N == 0) return {};
+    if (min_weight > max_weight) std::swap(min_weight,max_weight);
 
     // Original logic
-    std::mt19937                           rng(seed);
+    std::mt19937 rng(seed);
     // uniform_real_distribution handles min_weight == max_weight correctly.
     std::uniform_real_distribution<double> dist(min_weight, max_weight);
-    dMatrix                                 adj(N, dVec(N));
+    dMatrix adj(N, dVec(N));
     for (size_t i = 1; i < N; ++i)
     {
         for (size_t j = 0; j < i; ++j)
@@ -194,24 +169,16 @@ inline dMatrix erdos_renyi(
 )
 {
     // Error Handling
-    if (N == 0)
-    {
-        throw std::invalid_argument("[erdos_renyi_dMatrix] Number of nodes N cannot be zero.");
-    }
-    if (p < 0.0 || p > 1.0)
-    {
-        throw std::invalid_argument("[erdos_renyi_dMatrix] Probability p (" + std::to_string(p) + ") must be between 0.0 and 1.0.");
-    }
-    if (min_weight > max_weight)
-    {
-        throw std::invalid_argument("[erdos_renyi_dMatrix] min_weight (" + std::to_string(min_weight) + ") cannot be greater than max_weight (" + std::to_string(max_weight) + ").");
-    }
+    if (N == 0) return {};
+    if (p < 0.0) return dMatrix(N,dVec(N,0.0));
+    if (p >= 1.0) return random(N,min_weight,max_weight,seed);
+    if (min_weight > max_weight) std::swap(min_weight,max_weight);
 
     // Original logic
-    std::mt19937                           rng(seed);
+    std::mt19937 rng(seed);
     std::uniform_real_distribution<double> weight_dist(min_weight, max_weight); // Renamed dist
-    std::bernoulli_distribution            edge_dist(p);
-    dMatrix                                 adj(N, dVec(N, 0.0));
+    std::bernoulli_distribution edge_dist(p);
+    dMatrix adj(N, dVec(N, 0.0));
     for (size_t i = 0; i < N; ++i)
     {
         for (size_t j = 0; j < N; ++j)
@@ -221,7 +188,6 @@ inline dMatrix erdos_renyi(
                 adj[i][j] = weight_dist(rng);
             }
         }
-
     }
     return adj;
 }
@@ -245,43 +211,26 @@ inline dMatrix erdos_renyi_uniform(
 )
 {
     // Error Handling
-    if (N == 0)
-    {
-        throw std::invalid_argument("[erdos_renyi_uniform] Number of nodes N cannot be zero.");
-    }
-    if (p < 0.0 || p > 1.0)
-    {
-        throw std::invalid_argument("[erdos_renyi_uniform] Probability p (" + std::to_string(p) + ") must be between 0.0 and 1.0.");
-    }
-    if (min_weight > max_weight)
-    {
-        throw std::invalid_argument("[erdos_renyi_uniform] min_weight (" + std::to_string(min_weight) + ") cannot be greater than max_weight (" + std::to_string(max_weight) + ").");
-    }
+    if (N == 0) return {};
+    if (p < 0.0) return dMatrix(N,dVec(N,0.0));
+    if (p >= 1.0) return random(N,min_weight,max_weight,seed);
+    if (min_weight > max_weight) std::swap(min_weight,max_weight);
 
-    std::mt19937                           rng(seed);
+    std::mt19937 rng(seed);
     std::uniform_real_distribution<double> weight_dist(min_weight, max_weight);
-    dMatrix                                 adj(N, dVec(N, 0.0));
-
+    dMatrix adj(N, dVec(N, 0.0));
     // Calculate exact number of edges needed
     size_t total_edges = static_cast<size_t>(N * (N - 1) * p);
-    
     // Create vector of all possible edges
-    std::vector<std::pair<size_t, size_t>> possible_edges;
+    wpairVec possible_edges;
     possible_edges.reserve(N * (N - 1));  // Reserve space for all possible edges
     for (size_t i = 0; i < N; ++i)
-    {
         for (size_t j = 0; j < N; ++j)
-        {
             if (i != j)  // No self-loops
-            {
                 possible_edges.emplace_back(i, j);
-            }
-        }
-    }
 
     // Shuffle the edges
     std::shuffle(possible_edges.begin(), possible_edges.end(), rng);
-
     // Create exactly total_edges edges
     for (size_t e = 0; e < total_edges; ++e)
     {
@@ -312,24 +261,16 @@ inline dMatrix erdos_renyi_symmetric(
 )
 {
     // Error Handling
-    if (N == 0)
-    {
-        throw std::invalid_argument("[erdos_renyi_symmetric_dMatrix] Number of nodes N cannot be zero.");
-    }
-    if (p < 0.0 || p > 1.0)
-    {
-        throw std::invalid_argument("[erdos_renyi_symmetric_dMatrix] Probability p (" + std::to_string(p) + ") must be between 0.0 and 1.0.");
-    }
-    if (min_weight > max_weight)
-    {
-        throw std::invalid_argument("[erdos_renyi_symmetric_dMatrix] min_weight (" + std::to_string(min_weight) + ") cannot be greater than max_weight (" + std::to_string(max_weight) + ").");
-    }
+    if (N == 0) return {};
+    if (p < 0.0) return dMatrix(N,dVec(N,0.0));
+    if (p >= 1.0) return random_symmetric(N,min_weight,max_weight,seed);
+    if (min_weight > max_weight) std::swap(min_weight,max_weight);
 
     // Original logic
-    std::mt19937                           rng(seed);
+    std::mt19937 rng(seed);
     std::uniform_real_distribution<double> weight_dist(min_weight, max_weight); // Renamed dist
-    std::bernoulli_distribution            edge_dist(p);
-    dMatrix                                 adj(N, dVec(N, 0.0));
+    std::bernoulli_distribution edge_dist(p);
+    dMatrix adj(N, dVec(N, 0.0));
     for (size_t i = 1; i < N; ++i)
     {
         for (size_t j = 0; j < i; ++j)
@@ -363,40 +304,27 @@ inline dMatrix erdos_renyi_symmetric_uniform(
 )
 {
     // Error Handling
-    if (N == 0)
-    {
-        throw std::invalid_argument("[erdos_renyi_symmetric_uniform] Number of nodes N cannot be zero.");
-    }
-    if (p < 0.0 || p > 1.0)
-    {
-        throw std::invalid_argument("[erdos_renyi_symmetric_uniform] Probability p (" + std::to_string(p) + ") must be between 0.0 and 1.0.");
-    }
-    if (min_weight > max_weight)
-    {
-        throw std::invalid_argument("[erdos_renyi_symmetric_uniform] min_weight (" + std::to_string(min_weight) + ") cannot be greater than max_weight (" + std::to_string(max_weight) + ").");
-    }
+    if (N == 0) return {};
+    if (p < 0.0) return dMatrix(N,dVec(N,0.0));
+    if (p >= 1.0) return random_symmetric(N,min_weight,max_weight,seed);
+    if (min_weight > max_weight) std::swap(min_weight,max_weight);
 
-    std::mt19937                           rng(seed);
+    std::mt19937 rng(seed);
     std::uniform_real_distribution<double> weight_dist(min_weight, max_weight);
-    dMatrix                                 adj(N, dVec(N, 0.0));
+    dMatrix adj(N, dVec(N, 0.0));
 
     // Calculate exact number of edges needed
     size_t total_edges = static_cast<size_t>( ( N * (N - 1) * 0.5 ) * p );
     
     // Create vector of all possible edges (only lower triangle)
-    std::vector<std::pair<size_t, size_t>> possible_edges;
+    wpairVec possible_edges;
     possible_edges.reserve( N * (N - 1) * 0.5 );  // Reserve space for all possible edges
     for (size_t i = 1; i < N; ++i)
-    {
         for (size_t j = 0; j < i; ++j)
-        {
             possible_edges.emplace_back(i, j);
-        }
-    }
 
     // Shuffle the edges
     std::shuffle(possible_edges.begin(), possible_edges.end(), rng);
-
     // Create exactly total_edges edges
     for (size_t e = 0; e < total_edges; ++e)
     {
@@ -429,25 +357,13 @@ inline dMatrix small_world(
 )
 {
     // Error Handling
-    if (N == 0)
-    {
-        throw std::invalid_argument("[small_world] Number of nodes N cannot be zero.");
-    }
-    if (k >= N)
-    {
-        throw std::invalid_argument("[small_world] k (" + std::to_string(k) + ") must be less than N (" + std::to_string(N) + ").");
-    }
-    if (k == 0)
-    {
-        throw std::invalid_argument("[small_world] k must be greater than 0.");
-    }
-    if (beta < 0.0 || beta > 1.0)
-    {
-        throw std::invalid_argument("[small_world] Rewiring probability beta (" + std::to_string(beta) + ") must be between 0.0 and 1.0.");
-    }
-
+    if (N == 0) return {};
+    if (k >= N/2) return random(N,weight,weight,seed);
+    if (k == 0) return dMatrix(N,dVec(N,0.0));
+    if (beta < 0.0) beta = 0.0;
+    else if (beta >1.0) beta = 1.0;
     std::mt19937 rng(seed);
-    dMatrix       adj(N, dVec(N, 0.0));
+    dMatrix adj(N, dVec(N, 0.0));
 
     // Initial ring lattice - ensure k/2 neighbors on each side
     size_t half_k = k / 2; // Integer division intentional
@@ -461,10 +377,11 @@ inline dMatrix small_world(
             adj[i][left]  = weight;
         }
         // Handle odd k by adding one more connection
-        if (k % 2 == 1 && N > 2)
+        if (k % 2 == 1 && N > 2*(k/2))
         {
             size_t extra  = (i + (k / 2 + 1)) % N;
             adj[i][extra] = weight;
+            adj[extra][i] = weight;
         }
     }
     // Rewiring with improved logic
@@ -485,7 +402,7 @@ inline dMatrix small_world(
 
                 while (!found && attempts < max_attempts)
                 {
-                    new_neighbor              = node_dist(rng);
+                    new_neighbor = node_dist(rng);
                     if (new_neighbor         != i &&
                         new_neighbor         != neighbor &&
                         adj[i][new_neighbor] == 0.0)
@@ -541,21 +458,6 @@ inline dMatrix small_world(
     return adj;
 }
 
-// -----------------------------------------------------------------------------
-// Sparse small-world dMatrix (Watts-Strogatz, returns SparsedMatrix)
-inline SparsedMatrix small_world_sparse(
-    size_t   N,
-    size_t   k,
-    double   beta,
-    double   weight,
-    unsigned seed = 42
-)
-{
-    auto   dense  = small_world(N, k, beta, weight, seed);
-    auto   sparse = dense_to_sparse(dense);
-    return sparse;
-}
-
 // Directed Small-world dMatrix (Watts-Strogatz model, ring lattice with rewiring)
 /*----------------------------------------------------------*/
 // Parameters:
@@ -575,22 +477,11 @@ inline dMatrix small_world_directed(
 )
 {
     // Error Handling
-    if (N == 0)
-    {
-        throw std::invalid_argument("[small_world_directed] Number of nodes N cannot be zero.");
-    }
-    if (k >= N)
-    {
-        throw std::invalid_argument("[small_world_directed] k (" + std::to_string(k) + ") must be less than N (" + std::to_string(N) + ").");
-    }
-    if (k == 0)
-    {
-        throw std::invalid_argument("[small_world_directed] k must be greater than 0.");
-    }
-    if (beta < 0.0 || beta > 1.0)
-    {
-        throw std::invalid_argument("[small_world_directed] Rewiring probability beta (" + std::to_string(beta) + ") must be between 0.0 and 1.0.");
-    }
+    if (N == 0) return {};
+    if (k >= N/2) return random(N,weight,weight,seed);
+    if (k == 0) return dMatrix(N,dVec(N,0.0));
+    if (beta < 0.0) beta = 0.0;
+    else if (beta >1.0) beta = 1.0;
 
     std::mt19937 rng(seed);
     dMatrix       adj(N, dVec(N, 0.0));
@@ -644,28 +535,6 @@ inline dMatrix small_world_directed(
     return adj;
 }
 
-// Multilayered dMatrix: block diagonal matrix, each block is a layer
-inline dMatrix multilayered(const std::vector<dMatrix> &layers)
-{
-    size_t offset = 0;
-    size_t total_N = 0;
-    for (const auto &layer : layers) total_N += layer.size();
-    dMatrix adj(total_N, dVec(total_N, 0.0));
-    for (const auto &layer : layers)
-    {
-        size_t n = layer.size();
-        for (size_t i = 0; i < n; ++i)
-        {
-            for (size_t j = 0; j < n; ++j)
-            {
-                adj[offset + i][offset + j] = layer[i][j];
-            }
-        }
-        offset += n;
-    }
-    return adj;
-}
-
 // Modular dMatrix: nodes are divided into modules, dense within, sparse between
 /*----------------------------------------------------------*/
 // Parameters:
@@ -689,33 +558,16 @@ inline dMatrix modular(
 )
 {
     // Error handling
-    if (module_size == 0)
-    {
-        throw std::invalid_argument("[modular] Module size cannot be zero.");
-    }
-    if (num_modules == 0)
-    {
-        throw std::invalid_argument("[modular] Number of modules cannot be zero.");
-    }
-    if (p_in < 0.0 || p_in > 1.0)
-    {
-        throw std::invalid_argument("[modular] Within-module connection probability p_in (" +
-                                    std::to_string(p_in) + ") must be between 0.0 and 1.0.");
-    }
-    if (p_out < 0.0 || p_out > 1.0)
-    {
-        throw std::invalid_argument("[modular] Between-module connection probability p_out (" +
-                                    std::to_string(p_out) + ") must be between 0.0 and 1.0.");
-    }
+    if (module_size == 0) return {};
+    if (num_modules == 0) return {};
+    if (p_in < 0.0) p_in = 0.0;
+    else if (p_in > 1.0) p_in = 1.0;
+    if (p_out < 0.0) p_out = 0.0;
+    else if (p_out > 1.0) p_out = 1.0;
     // Calculate total network size
-    size_t N = module_size * num_modules;
-    if (N < num_modules)
-    { // Check for overflow
-        throw std::invalid_argument("[modular] Total network size (module_size * num_modules) exceeds maximum size_t value.");
-    }
-
-    dMatrix                      adj(N, dVec(N, 0.0));
-    std::mt19937                rng(seed);
+    size_t N = module_size*num_modules;
+	dMatrix adj(N,dVec(N,0.0));
+    std::mt19937 rng(seed);
     std::bernoulli_distribution in_dist(p_in), out_dist(p_out);
     for (size_t m = 0; m < num_modules; ++m)
     {
@@ -780,39 +632,16 @@ inline dMatrix hierarchical(
 )
 {
     // Parameter validation and base cases
-    if (N == 0)
-    {
-        throw std::invalid_argument("[hierarchical] Base module size N cannot be zero.");
-    }
-    if (p_in < 0.0 || p_in > 1.0)
-    {
-        throw std::invalid_argument("[hierarchical] Within-module probability p_in (" +
-                                    std::to_string(p_in) + ") must be between 0.0 and 1.0.");
-    }
-    if (p_out < 0.0 || p_out > 1.0)
-    {
-        throw std::invalid_argument("[hierarchical] Between-module probability p_out (" +
-                                    std::to_string(p_out) + ") must be between 0.0 and 1.0.");
-    }
-    if (level_decay <= 0.0 || level_decay > 1.0)
-    {
-        throw std::invalid_argument("[hierarchical] Level decay factor (" +
-                                    std::to_string(level_decay) + ") must be between 0.0 and 1.0.");
-    }
+    if (N == 0) return {};
+    if (base_module_num == 0) return {};
+    p_in = std::clamp(p_in, 0.0, 1.0);
+    p_out = std::clamp(p_out, 0.0, 1.0);
+    level_decay = std::clamp(level_decay,0.0,1.0);
+    if (levels == 0) return erdos_renyi(N, p_in, in_weight, out_weight, seed);
     // Check for potential size overflow
     size_t max_nodes = N * (static_cast<size_t>(1) << (levels - 1)) * base_module_num;
-    if (max_nodes / (N * base_module_num) != (static_cast<size_t>(1) << (levels - 1)))
-    {
-        throw std::invalid_argument("[hierarchical] Network size (N * 2^levels) exceeds maximum size_t value.");
-    }
-    if (base_module_num == 0)
-    {
-        throw std::invalid_argument("[hierarchical] base_module_num cannot be zero.");
-    }
-    if (levels == 0)
-    {
-        return erdos_renyi(N, p_in, in_weight, out_weight, seed);
-    }
+    size_t level_multiplier=base_module_num*(static_cast<size_t>(1)<<(levels-1)),module_num = base_module_num*level_multiplier;
+    if (max_nodes / (N * base_module_num) != level_multiplier) return erdos_renyi(module_num,p_in,in_weight,out_weight,seed);
     double this_p_in  = p_in * std::pow(level_decay, levels - 1);
     double this_p_out = p_out * std::pow(level_decay, levels - 1);
     if (levels == 1)
@@ -822,8 +651,8 @@ inline dMatrix hierarchical(
     dMatrix adj(max_nodes, dVec(max_nodes, 0.0));
     // Recursively build left and right submodules
     auto   left  = hierarchical(N, levels - 1, p_in, p_out, in_weight, out_weight, level_decay, seed + 1, base_module_num);
-    auto   right = hierarchical(N, levels - 1, p_in, p_out, in_weight, out_weight, level_decay, seed + 2, base_module_num);
-    size_t half  = N * std::pow(2, levels - 2) * base_module_num;
+    auto   right = hierarchical(N, levels - 1, p_in, p_out, in_weight, out_weight, level_decay, seed + level_multiplier, base_module_num);
+    size_t half  = N * (static_cast<size_t>(1)<<(levels-2)) * base_module_num;
     for (size_t i = 0; i < half; ++i)
     {
         for (size_t j = 0; j < half; ++j)
@@ -848,96 +677,102 @@ inline dMatrix hierarchical(
     return adj;
 }
 
-// pick_topology: Create a network topology based on type and parameters
-/*----------------------------------------------------------*/
-// Parameters:
-//   topology_type: Type of network to create ("random", "erdos_renyi", "small_world", "modular", "hierarchical") (default "random")
-//   N: Number of nodes interpreted per topology type (default 100)
-//   a, b, c, d, e, f: Parameters whose meaning depends on topology_type (see below)
-//   seed: Random seed (default 42)
-//   base_module_num: Number of modules in the base level of the hierarchy (default 2)
-// Returns:
-//   Adjacency matrix for the selected topology
-/*----------------------------------------------------------*/
-// Note: Error-handling is performed at this high level for us  er-friendliness, so that invalid parameters are caught early with clear messages.
-inline dMatrix pick_topology(
-    const std::string &topology_type = "random",
-    size_t   N               = 100,
-    double   a               = 0.0,
-    double   b               = 1.0,
-    double   c               = 1.0,
-    unsigned seed            = 42,
-    double   d               = 1.0,
-    double   e               = 1.0,
-    double   f               = 0.5,
-    size_t   base_module_num = 2
+enum class NetworkTopology
+{
+    Uniform=0,
+    UniformSymmetric,
+    ErdosRenyi,
+    ErdosRenyiUniform,
+    ErdosRenyiSymmetric,
+    ErdosRenyiSymmetricUniform,
+    SmallWorld,
+    SmallWorldDirected,
+    Modular,
+    Hierarchical
+};
+struct NetworkParams
+{
+    NetworkTopology topology=NetworkTopology::Uniform;
+    double p1      = 1.0;
+    double p2      = 0.5;
+    double weight1 = 1.0;
+    double weight2 = 0.5;
+    double ld      = 0.1;
+    size_t degree  = 2;
+    size_t seed    = 41;
+    size_t baseN   = 50;
+    size_t N       = 50;
+    size_t sModule = 50;
+    size_t nModule = 1;
+    size_t hLevel  = 1;
+};
+
+inline dMatrix initialize_network(const NetworkParams& networkParams)
+{
+	switch(networkParams.topology)
+    {
+        case NetworkTopology::Uniform: return random(networkParams.N,networkParams.weight1,networkParams.weight2,networkParams.seed);break;
+        case NetworkTopology::UniformSymmetric:
+            return random_symmetric(networkParams.N,networkParams.weight1,networkParams.weight2,networkParams.seed);break;
+        case NetworkTopology::ErdosRenyi:
+            return erdos_renyi(networkParams.N,networkParams.p1,networkParams.weight1,networkParams.weight2,networkParams.seed);break;
+        case NetworkTopology::ErdosRenyiUniform:
+            return erdos_renyi_uniform(networkParams.N,networkParams.p1,networkParams.weight1,networkParams.weight2,networkParams.seed);break;
+        case NetworkTopology::ErdosRenyiSymmetric:
+            return erdos_renyi_symmetric(networkParams.N,networkParams.p1,networkParams.weight1,networkParams.weight2,networkParams.seed);break;
+        case NetworkTopology::ErdosRenyiSymmetricUniform:
+            return erdos_renyi_symmetric_uniform(networkParams.N,networkParams.p1,networkParams.weight1,networkParams.weight2,networkParams.seed);
+            break;
+        case NetworkTopology::SmallWorld:
+            return small_world(networkParams.N,networkParams.degree,networkParams.p1,networkParams.weight1,networkParams.seed);break;
+        case NetworkTopology::SmallWorldDirected:
+            return small_world_directed(networkParams.N,networkParams.degree,networkParams.p1,networkParams.weight1,networkParams.seed);break;
+        case NetworkTopology::Modular:
+            return modular(networkParams.sModule,networkParams.nModule,networkParams.p1,networkParams.p2,
+                           networkParams.weight1,networkParams.weight2,networkParams.seed);break;
+        case NetworkTopology::Hierarchical:
+            return hierarchical(networkParams.sModule,networkParams.hLevel,networkParams.p1,networkParams.p2,
+                                networkParams.weight1,networkParams.weight2,networkParams.ld,networkParams.seed,networkParams.nModule);break;
+        default: return random_symmetric(networkParams.N,networkParams.weight1,networkParams.weight2,networkParams.seed);break;
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Sparse small-world dMatrix (Watts-Strogatz, returns SparsedMatrix)
+inline SparsedMatrix small_world_sparse(
+    size_t   N,
+    size_t   k,
+    double   beta,
+    double   weight,
+    unsigned seed = 42
 )
 {
-    // Basic N=0 check, specific functions might have more detailed checks.
-    // Some types like multilayered might derive N differently, so not checking N for all types here.
-    if (N == 0)
-    {
-        throw std::invalid_argument("[pick_topology] Number of nodes N cannot be zero for type '" + topology_type + "'.");
-    }
+    auto   dense  = small_world(N, k, beta, weight, seed);
+    auto   sparse = dense_to_sparse(dense);
+    return sparse;
+}
 
-    if (topology_type == "random")
-    {   // a = min_weight, b = max_weight, c is not used
-        return random(N, a, b, seed);
-    }
-    else if (topology_type == "erdos_renyi")
-    {   // a = p, b = min_weight, c = max_weight
-        return erdos_renyi(N, a, b, c, seed);
-    }
-    else if (topology_type == "erdos_renyi_uniform")
-    {   // a = p, b = min_weight, c = max_weight
-        return erdos_renyi_uniform(N, a, b, c, seed);
-    }
-    else if (topology_type == "erdos_renyi_symmetric")
-    {   // a = p, b = min_weight, c = max_weight
-        return erdos_renyi_symmetric(N, a, b, c, seed);
-    }
-    else if (topology_type == "erdos_renyi_symmetric_uniform")
-    {   // a = p, b = min_weight, c = max_weight
-        return erdos_renyi_symmetric_uniform(N, a, b, c, seed);
-    }    
-    else if (topology_type == "small_world")
-    {   // a = k (num_neighbors_half for ring), b = beta, c = weight
-        return small_world(N, static_cast<size_t>(a), b, c, seed);
-    }
-    else if (topology_type == "small_world_directed")
-    {   // a = k (num_neighbors_half for ring), b = beta, c = weight
-        return small_world_directed(N, static_cast<size_t>(a), b, c, seed);
-    }
-    else if (topology_type == "modular")
-    {   // Assuming: a = num_modules, b = p_in, c = p_out
-        // d = in_weight, e = out_weight, and N is the base module size
-        size_t num_modules_val = static_cast<size_t>(a);
-        if (num_modules_val == 0)
-        {
-            throw std::invalid_argument("[pick_topology] For 'modular', num_modules (parameter 'a') cannot be zero if N > 0.");
-        }
-        return modular(N, num_modules_val, b, c, d, e, seed);
-    }
-    else if (topology_type == "hierarchical")
-    {   // Assuming: a = levels, b = p_in, c = p_out
-        // d = in_weight, e = out_weight, f = level_decay, and N is the base module size
-        size_t levels_val = static_cast<size_t>(a);
-        if (levels_val == 0)
-        {
-            levels_val = 2;
-            std::cout  << "[pick_topology] Warning: levels (parameter 'a') is 0, setting to 2 (default for hierarchical)." << std::endl;
-        }
-        // hierarchical itself handles levels_val == 0 by returning an empty N x N matrix.
-        if (base_module_num == 0)
-        {
-            throw std::invalid_argument("[pick_topology] For 'hierarchical', base_module_num (parameter 'f') cannot be zero.");
-        }
-        return hierarchical(N, levels_val, b, c, d, e, f, seed, base_module_num);
-    }
-    else
+
+// Multilayered dMatrix: block diagonal matrix, each block is a layer
+inline dMatrix multilayered(const std::vector<dMatrix> &layers)
+{
+    size_t offset = 0;
+    size_t total_N = 0;
+    for (const auto &layer : layers) total_N += layer.size();
+    dMatrix adj(total_N, dVec(total_N, 0.0));
+    for (const auto &layer : layers)
     {
-        throw std::invalid_argument("[pick_topology] Unknown topology type: '" + topology_type + "'.");
+        size_t n = layer.size();
+        for (size_t i = 0; i < n; ++i)
+        {
+            for (size_t j = 0; j < n; ++j)
+            {
+                adj[offset + i][offset + j] = layer[i][j];
+            }
+        }
+        offset += n;
     }
+    return adj;
 }
 
 // effective_multiplex: Weighted sum of multiple network layers
@@ -948,53 +783,28 @@ inline dMatrix pick_topology(
 // Returns:
 //   Weighted sum of layers as a single adjacency matrix
 inline dMatrix effective_multiplex(
-    const std::vector<dMatrix> &layers,
-    const dVec                &layer_weights
+    const Vec<dMatrix> &layers,
+    const dVec                 &layer_weights
 )
 {
-    if (layers.empty())
-    {
-        throw std::invalid_argument("Input 'layers' cannot be empty.");
-    }
-    if (layers.size() != layer_weights.size())
-    {
-        throw std::invalid_argument("Number of layers must match number of layer weights.");
-    }
-
-    const size_t num_layers = layers.size();
-
-    const size_t N          = layers[0].size();
-    if (N == 0)
-    {
-        throw std::invalid_argument("Dimension N of layers (number of nodes) cannot be zero.");
-    }
-
+    if (layers.empty()) return {};
+    size_t num_layers = layers.size();
+    if (num_layers > layer_weights.size()) {};
+    const size_t N = layers[0].size();
+    if (N == 0) return {};
     for (size_t l = 0; l < num_layers; ++l)
     {
-        if (layers[l].size() != N)
-        {
-            throw std::invalid_argument("All layers must have the same dimension N (number of nodes). Layer " + std::to_string(l) + " has " + std::to_string(layers[l].size()) + " nodes, expected " + std::to_string(N) + ".");
-        }
+        if (layers[l].size() != N) return {};
         for (size_t i = 0; i < N; ++i)
         {
-            if (layers[l][i].size() != N)
-            {
-                throw std::invalid_argument("All layers must be N x N square matrices. Layer " + std::to_string(l) + ", row " + std::to_string(i) + " has " + std::to_string(layers[l][i].size()) + " columns, expected " + std::to_string(N) + ".");
-            }
+            if (layers[l][i].size() != N) return {};
         }
     }
-
     dMatrix adj_out(N, dVec(N, 0.0));
     for (size_t l = 0; l < num_layers; ++l)
-    {
         for (size_t i = 0; i < N; ++i)
-        {
             for (size_t j = 0; j < N; ++j)
-            {
                 adj_out[i][j] += layer_weights[l] * layers[l][i][j];
-            }
-        }
-    }
     return adj_out;
 }
 
@@ -1008,108 +818,12 @@ inline dMatrix effective_multiplex(
 //   layer_seeds: Vector of random seeds for each layer (default 42)
 // Returns:
 //   Vector of adjacency matrices, one per layer
-inline std::vector<dMatrix> generate_multiplex_network_layers(
-    size_t N,
-    size_t num_layers,
-    const  std::vector<std::string> &layer_generation_types,
-    const  dMatrix                   &layer_params,
-    const  std::vector<unsigned>    &layer_seeds
-)
+inline Vec<dMatrix> generate_multiplex_network_layers(const Vec<NetworkParams>& layer_configs)
 {
-    // Basic parameter validation
-    if (num_layers == 0)
-    {
-        throw std::invalid_argument("[generate_multiplex_network_layers] Number of layers cannot be zero.");
-    }
-    if (N == 0)
-    {
-        throw std::invalid_argument("[generate_multiplex_network_layers] Number of nodes N cannot be zero.");
-    }
-
-    // Check consistency of input vectors/matrix
-    if (layer_generation_types.size() != num_layers)
-    {
-        throw std::invalid_argument("[generate_multiplex_network_layers] Number of layer types (" +
-                                    std::to_string(layer_generation_types.size()) + ") does not match num_layers (" +
-                                    std::to_string(num_layers) + ").");
-    }
-    if (layer_params.size() != num_layers)
-    {
-        throw std::invalid_argument("[generate_multiplex_network_layers] Number of parameter sets (" +
-                                    std::to_string(layer_params.size()) + ") does not match num_layers (" +
-                                    std::to_string(num_layers) + ").");
-    }
-    if (layer_seeds.size() != num_layers)
-    {
-        throw std::invalid_argument("[generate_multiplex_network_layers] Number of seeds (" +
-                                    std::to_string(layer_seeds.size()) + ") does not match num_layers (" +
-                                    std::to_string(num_layers) + ").");
-    }
-
-    // Validate layer types and parameter counts
-    for (size_t i = 0; i < num_layers; ++i)
-    {
-        const auto &type = layer_generation_types[i];
-        const auto &params = layer_params[i];
-
-        // Check if topology type is valid
-        if (type != "random" && type != "erdos_renyi" && type != "small_world" &&
-            type != "modular" && type != "hierarchical" && 
-            type != "erdos_renyi_uniform" && type != "erdos_renyi_symmetric"  && 
-            type != "erdos_renyi_symmetric_uniform" && type != "small_world_directed")
-        {
-            throw std::invalid_argument("[generate_multiplex_network_layers] Invalid topology type '" +
-                                        type + "' for layer " + std::to_string(i) + ".");
-        }
-
-        // Check minimum parameter count for each type
-        size_t min_params = 3; // Most types need at least 3 parameters
-        if (type == "modular")
-            min_params = 5; // Modular needs 5 parameters
-        if (type == "hierarchical")
-            min_params = 7; // Hierarchical needs 6 parameters
-
-        if (params.size() < min_params)
-        {
-            throw std::invalid_argument("[generate_multiplex_network_layers] Insufficient parameters for " +
-                                        type + " topology in layer " + std::to_string(i) + ". Expected at least " +
-                                        std::to_string(min_params) + ", got " + std::to_string(params.size()) + ".");
-        }
-    }
-
-    std::vector<dMatrix> multiplex_layers(num_layers);
-
-    for (size_t l = 0; l < num_layers; ++l)
-    {
-        const std::string &type                     = layer_generation_types[l];
-        const dVec        &current_layer_gen_params = layer_params[l]; // Renamed for clarity
-        unsigned          seed                      = layer_seeds[l];
-        dMatrix            current_layer_adj;
-
-        if (type == "erdos_renyi")
-        { // Expected params: p, min_weight, max_weight
-            current_layer_adj = erdos_renyi(N, current_layer_gen_params[0], current_layer_gen_params[1], current_layer_gen_params[2], seed);
-        }
-        else if (type == "small_world")
-        { // Expected params: k, beta, weight
-            current_layer_adj = small_world(N, static_cast<size_t>(current_layer_gen_params[0]), current_layer_gen_params[1], current_layer_gen_params[2], seed);
-        }
-        else if (type == "random")
-        {
-            // Expected params: min_weight, max_weight
-            current_layer_adj = random(N, current_layer_gen_params[0], current_layer_gen_params[1], seed);
-        }
-        else if (type == "modular")
-        { // Expected params: num_modules, p_in, p_out, in_weight, out_weight
-            current_layer_adj = modular(N, static_cast<size_t>(current_layer_gen_params[0]), current_layer_gen_params[1], current_layer_gen_params[2], current_layer_gen_params[3], current_layer_gen_params[4], seed);
-        }
-        else if (type == "hierarchical")
-        { // Expected params: levels, p_in, p_out, in_weight, out_weight, level_decay
-            current_layer_adj = hierarchical(N, static_cast<size_t>(current_layer_gen_params[0]), current_layer_gen_params[1], current_layer_gen_params[2], current_layer_gen_params[3], current_layer_gen_params[4], current_layer_gen_params[5], seed, static_cast<size_t>(current_layer_gen_params[6]));
-        }
-        multiplex_layers[l] = current_layer_adj;
-    }
-    return multiplex_layers;
+    if (layer_configs.empty()) return {};
+    Vec<dMatrix> layers; layers.reserve(layer_configs.size());
+    for (const auto config : layer_configs) layers.push_back(initialize_network(config));
+	return layers;
 }
 
 // -----------------------------------------------------------------------------
@@ -1124,13 +838,9 @@ inline wVec in_degrees(const dMatrix& adj, double threshold = 1e-12)
     size_t N = adj.size();
     wVec   indeg(N, 0);
     for (size_t i = 0; i < N; ++i)
-    {
         for (size_t j = 0; j < N; ++j)
-        {
             if (std::abs(adj[i][j]) > threshold)
                 ++indeg[i];
-        }
-    }
     return indeg;
 }
 
@@ -1145,14 +855,10 @@ inline wVec out_degrees(const dMatrix& adj, double threshold = 1e-12)
 {
     size_t N = adj.size();
     wVec   outdeg(N, 0);
-    for (size_t i = 0; i < N; ++i)
-    {
-        for (size_t j = 0; j < N; ++j)
-        {
+    for (size_t j = 0; j < N; ++j)
+        for (size_t i = 0; i < N; ++i)
             if (std::abs(adj[i][j]) > threshold)
-                ++outdeg[i];
-        }
-    }
+                ++outdeg[j];
     return outdeg;
 }
 

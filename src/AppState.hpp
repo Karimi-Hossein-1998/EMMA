@@ -31,31 +31,31 @@
 using SolverFunc = std::function<MathEngine::SolverResults(const MathEngine::SolverParameters&)>;
 inline SolverFunc rk1_wrapper()
 {
-    return [](const MathEngine::SolverParameters& Params) {return MathEngine::rk1_solver(Params);};
+    return [](const MathEngine::SolverParameters& Params) {return MathEngine::rk1_solver_callback(Params);};
 }
 inline SolverFunc rk2_wrapper()
 {
-    return [](const MathEngine::SolverParameters& Params) {return MathEngine::rk2_solver(Params);};
+    return [](const MathEngine::SolverParameters& Params) {return MathEngine::rk2_solver_callback(Params);};
 }
 inline SolverFunc rk3_wrapper()
 {
-    return [](const MathEngine::SolverParameters& Params) {return MathEngine::rk3_solver(Params);};
+    return [](const MathEngine::SolverParameters& Params) {return MathEngine::rk3_solver_callback(Params);};
 }
 inline SolverFunc rk4_wrapper()
 {
-    return [](const MathEngine::SolverParameters& Params) {return MathEngine::rk4_solver(Params);};
+    return [](const MathEngine::SolverParameters& Params) {return MathEngine::rk4_solver_callback(Params);};
 }
 inline SolverFunc rk4_38_wrapper()
 {
-    return [](const MathEngine::SolverParameters& Params) {return MathEngine::rk4_38_solver(Params);};
+    return [](const MathEngine::SolverParameters& Params) {return MathEngine::rk4_38_solver_callback(Params);};
 }
 inline SolverFunc rk4_ralston_wrapper()
 {
-    return [](const MathEngine::SolverParameters& Params) {return MathEngine::rk4_ralston_solver(Params);};
+    return [](const MathEngine::SolverParameters& Params) {return MathEngine::rk4_ralston_solver_callback(Params);};
 }
 inline SolverFunc rk4_gill_wrapper()
 {
-    return [](const MathEngine::SolverParameters& Params) {return MathEngine::rk4_gill_solver(Params);};
+    return [](const MathEngine::SolverParameters& Params) {return MathEngine::rk4_gill_solver_callback(Params);};
 }
 
 enum class ModelType
@@ -67,30 +67,6 @@ enum class KuramotoType
     KuramotoGeneral=0,
     KuramotoSparse,
     KuramotoSpecial
-};
-enum class InitState
-{
-	RandomUniform=0,
-    RandomNormal,
-    RandomCauchy,
-    RandomExponential,
-    RandomCircle,
-    Splay,
-    SplayPerturbed,
-    Modules
-};
-enum class NetworkTopology
-{
-	RandomUniform=0,
-    RandomUniformSymmetric,
-    ErdosRenyi,
-    ErdosRenyiUniform,
-    ErdosRenyiSymmetric,
-    ErdosRenyiSymmetricUniform,
-    SmallWorld,
-    SmallWorldDirected,
-    Modular,
-    Hierarchical
 };
 enum class SolverMethod
 {
@@ -129,7 +105,8 @@ struct DistParams
     int seed = 41;
     int moduleTypeIndex = 0;
     int typeIndex = 0;
-    InitState initState = InitState::RandomUniform;
+    MathEngine::InitState initState = MathEngine::InitState::Uniform;
+    MathEngine::InitType moduleType = MathEngine::InitType::Uniform;
     bool showArray = false;
     bool identical = false;
 };
@@ -142,7 +119,7 @@ struct NetParams
     int seed = 41;
     size_t sModulesBase = 10, nModulesBase = 2, hLevels = 2;
     size_t sModulesM = 10, nModulesM = 2;
-    NetworkTopology adjState = NetworkTopology::ErdosRenyi;
+    MathEngine::NetworkTopology adjState = MathEngine::NetworkTopology::ErdosRenyi;
     bool showAdjMatrix = false;
     int adjSelectedIndex = 3;
 };
@@ -150,7 +127,7 @@ struct SolverParams
 {
     SolverMethod solverMethod = SolverMethod::RK4;
     int nDs = 1;
-    int solverMethodSelectedIndex = 4;
+    int solverMethodSelectedIndex = 3;
     SolverFunc solverFunc=nullptr;
     MathEngine::SolverParameters solverParams;
     MathEngine::SolverResults solverResults;
@@ -184,6 +161,7 @@ struct PlotParams
 class AppState
 {
 	public:
+        float colorR=0.2,colorG=0.8,colorB=0.8,colorA=1.0;
         std::atomic<float> simProgress{0.0f};
         std::atomic<double> timeInv{0.0f};
         std::atomic<bool> isSimRunning{false};
@@ -289,8 +267,6 @@ class AppState
             "Random Exponential", "Random Circle", "Splay", "Splay Perturbed", "Modules (by type)"};
         static constexpr const char* moduleTypeNames[] = {"Random Uniform", "Random Normal", "Random Cauchy",
             "Random Exponential", "Random Circle", "Splay", "Splay Perturbed"};
-        static constexpr const char* moduleTypeIds[] = {"uniform", "normal", "cauchy", "exponential",
-            "circle", "splay", "splay_perturbed"};
         static constexpr const char* solverMethodNames[] = {"Euler (RK1)", "Midpoint (RK2)", "Runge-Kutta 3rd Order (RK3)",
             "Runge-Kutta 4th Order (Standard RK4)", "Runge-Kutta 4th Order (3/8 RK4 variant)", "Runge-Kutta 4th Order (Gill's RK4 variant)",
             "Runge-Kutta 4th Order (Ralston's RK4 variant)"
@@ -352,32 +328,32 @@ inline void AppState::DrawTopologyPanelContent()
     ImGui::SeparatorText("Network Topology");
     if (ImGui::Combo("Topology Type", &adjParams.adjSelectedIndex, adjNames, 10))
     {
-        adjParams.adjState = static_cast<NetworkTopology>(adjParams.adjSelectedIndex);
+        adjParams.adjState = static_cast<MathEngine::NetworkTopology>(adjParams.adjSelectedIndex);
     }
     switch (adjParams.adjState) {
-        case NetworkTopology::RandomUniform:
-        case NetworkTopology::RandomUniformSymmetric:
+        case MathEngine::NetworkTopology::Uniform:
+        case MathEngine::NetworkTopology::UniformSymmetric:
             ImGui::InputDouble("Min Weight", &adjParams.weightMin, 0.0001, 0.01, "%.15g");
             ImGui::InputDouble("Max Weight", &adjParams.weightMax, 0.0001, 0.01, "%.15g");
             break;
-        case NetworkTopology::ErdosRenyi:
-        case NetworkTopology::ErdosRenyiUniform:
-        case NetworkTopology::ErdosRenyiSymmetric:
-        case NetworkTopology::ErdosRenyiSymmetricUniform:
+        case MathEngine::NetworkTopology::ErdosRenyi:
+        case MathEngine::NetworkTopology::ErdosRenyiUniform:
+        case MathEngine::NetworkTopology::ErdosRenyiSymmetric:
+        case MathEngine::NetworkTopology::ErdosRenyiSymmetricUniform:
             ImGui::InputDouble("Min Weight", &adjParams.weightMin, 0.0001, 0.01, "%.15g");
             ImGui::InputDouble("Max Weight", &adjParams.weightMax, 0.0001, 0.01, "%.15g");
             if (ImGui::InputDouble("Connection Prob", &adjParams.prob, 0.0001, 0.01, "%.15g"))
                 adjParams.prob = std::clamp(adjParams.prob, 0.0, 1.0);
 	        break;
-        case NetworkTopology::SmallWorld:
-        case NetworkTopology::SmallWorldDirected:
+        case MathEngine::NetworkTopology::SmallWorld:
+        case MathEngine::NetworkTopology::SmallWorldDirected:
             ImGui::InputDouble("Weight", &adjParams.weight, 0.0001, 0.01, "%.15g");
             if (ImGui::InputDouble("Rewiring Prob", &adjParams.prob, 0.0001, 0.01, "%.15g"))
                 adjParams.prob = std::clamp(adjParams.prob, 0.0, 1.0);
             if (ImGui::InputInt("Mean Degree", &adjParams.meanDegree, 1, 10))
                 adjParams.meanDegree=std::max(0,adjParams.meanDegree);
             break;
-        case NetworkTopology::Modular: {
+        case MathEngine::NetworkTopology::Modular: {
             int sM = static_cast<int>(adjParams.sModulesM);
             int nM = static_cast<int>(adjParams.nModulesM);
             if (ImGui::InputInt("Module Size", &sM, 1, 10)) adjParams.sModulesM = std::max(1, sM);
@@ -390,7 +366,7 @@ inline void AppState::DrawTopologyPanelContent()
                 adjParams.probOut = std::clamp(adjParams.probOut, 0.0, 1.0);
             break;
         }
-        case NetworkTopology::Hierarchical: {
+        case MathEngine::NetworkTopology::Hierarchical: {
             int sB = static_cast<int>(adjParams.sModulesBase);
             int nB = static_cast<int>(adjParams.nModulesBase);
             int hL = static_cast<int>(adjParams.hLevels);
@@ -414,31 +390,31 @@ inline void AppState::DrawTopologyPanelContent()
         size_t seedVal = static_cast<size_t>(std::max(1, adjParams.seed));
         switch (adjParams.adjState)
         {
-            case NetworkTopology::RandomUniform:
+            case MathEngine::NetworkTopology::Uniform:
                 adj = MathEngine::random(modelParams.N,adjParams.weightMin,adjParams.weightMax,seedVal);
                 break;
-            case NetworkTopology::RandomUniformSymmetric:
+            case MathEngine::NetworkTopology::UniformSymmetric:
                 adj = MathEngine::random_symmetric(modelParams.N,adjParams.weightMin,adjParams.weightMax,seedVal);
                 break;
-            case NetworkTopology::ErdosRenyi:
+            case MathEngine::NetworkTopology::ErdosRenyi:
                 adj = MathEngine::erdos_renyi(modelParams.N,adjParams.prob,adjParams.weightMin,adjParams.weightMax,seedVal);
                 break;
-            case NetworkTopology::ErdosRenyiUniform:
+            case MathEngine::NetworkTopology::ErdosRenyiUniform:
                 adj = MathEngine::erdos_renyi_uniform(modelParams.N,adjParams.prob,adjParams.weightMin,adjParams.weightMax,seedVal);
                 break;
-            case NetworkTopology::ErdosRenyiSymmetric:
+            case MathEngine::NetworkTopology::ErdosRenyiSymmetric:
                 adj = MathEngine::erdos_renyi_symmetric(modelParams.N,adjParams.prob,adjParams.weightMin,adjParams.weightMax,seedVal);
                 break;
-            case NetworkTopology::ErdosRenyiSymmetricUniform:
+            case MathEngine::NetworkTopology::ErdosRenyiSymmetricUniform:
                 adj = MathEngine::erdos_renyi_symmetric_uniform(modelParams.N,adjParams.prob,adjParams.weightMin,adjParams.weightMax,seedVal);
                 break;
-            case NetworkTopology::SmallWorld:
+            case MathEngine::NetworkTopology::SmallWorld:
                 adj = MathEngine::small_world(modelParams.N,adjParams.meanDegree,adjParams.prob,adjParams.weight,seedVal);
                 break;
-            case NetworkTopology::SmallWorldDirected:
+            case MathEngine::NetworkTopology::SmallWorldDirected:
                 adj = MathEngine::small_world_directed(modelParams.N,adjParams.meanDegree,adjParams.prob,adjParams.weight,seedVal);
                 break;
-            case NetworkTopology::Modular:
+            case MathEngine::NetworkTopology::Modular:
                 modelParams.sModules = adjParams.sModulesM;
                 modelParams.nModules = adjParams.nModulesM;
                 modelParams.N = modelParams.sModules * modelParams.nModules;
@@ -446,7 +422,7 @@ inline void AppState::DrawTopologyPanelContent()
                                           adjParams.weightIn,adjParams.weightOut,
                                           seedVal);
                 break;
-            case NetworkTopology::Hierarchical:
+            case MathEngine::NetworkTopology::Hierarchical:
                 modelParams.sModules = adjParams.sModulesBase;
                 modelParams.nModules = adjParams.nModulesBase * static_cast<size_t>(std::pow(2, adjParams.hLevels - 1));
                 modelParams.N = modelParams.sModules * modelParams.nModules;
@@ -472,34 +448,35 @@ inline void AppState::DrawInitialsPanelContent()
 {
     ImGui::SeparatorText("Initial Phases");
     if (ImGui::Combo("Phase Dist", &phaseParams.typeIndex, dsStateNames, 8))
-        phaseParams.initState = static_cast<InitState>(phaseParams.typeIndex);
+        phaseParams.initState = static_cast<MathEngine::InitState>(phaseParams.typeIndex);
 
     switch (phaseParams.initState)
     {
-        case InitState::RandomUniform:
+        case MathEngine::InitState::Uniform:
             ImGui::InputDouble("Min##P", &phaseParams.minVal, 0.0001, 0.01, "%.15g");
             if (ImGui::InputDouble("Max##P", &phaseParams.maxVal, 0.0001, 0.01, "%.15g"))
                 phaseParams.maxVal=std::max(phaseParams.minVal,phaseParams.maxVal);
             break;
-        case InitState::RandomNormal:
+        case MathEngine::InitState::Normal:
             ImGui::InputDouble("Mean##P", &phaseParams.mean, 0.0001, 0.01, "%.15g");
             if (ImGui::InputDouble("Stddev##P", &phaseParams.stddev, 0.0001, 0.01, "%.15g"))
                 phaseParams.stddev=std::max(1e-5,phaseParams.stddev);
             break;
-        case InitState::RandomCauchy:
+        case MathEngine::InitState::Cauchy:
             ImGui::InputDouble("Location##P", &phaseParams.location, 0.0001, 0.01, "%.15g");
             if (ImGui::InputDouble("Scale##P", &phaseParams.scale, 0.0001, 0.01, "%.15g"))
                 phaseParams.scale=std::max(1e-5,phaseParams.scale);
             break;
-        case InitState::RandomExponential:
+        case MathEngine::InitState::Exponential:
             if (ImGui::InputDouble("Rate##P", &phaseParams.rate, 0.0001, 0.01, "%.15g"))
                 phaseParams.rate=std::max(1e-5,phaseParams.rate);
             break;
-        case InitState::SplayPerturbed:
+        case MathEngine::InitState::SplayPerturbed:
             ImGui::InputDouble("Perturbation##P", &phaseParams.perturbation, 0.000001, 0.0001, "%.15g");
             break;
-        case InitState::Modules:
-            ImGui::Combo("Module State##P", &phaseParams.moduleTypeIndex, moduleTypeNames, 7);
+        case MathEngine::InitState::Modules:
+            if (ImGui::Combo("Module State##P", &phaseParams.moduleTypeIndex, moduleTypeNames, 7))
+                phaseParams.moduleType=static_cast<MathEngine::InitType>(phaseParams.moduleTypeIndex);
             ImGui::InputDouble("Param 1##P", &phaseParams.param1, 0.0001, 0.01, "%.15g");
             ImGui::InputDouble("Param 2##P", &phaseParams.param2, 0.0001, 0.01, "%.15g");
             ImGui::Checkbox("Identical Modules##P", &phaseParams.identical);
@@ -513,30 +490,30 @@ inline void AppState::DrawInitialsPanelContent()
         size_t pSeed = static_cast<size_t>(std::max(1, phaseParams.seed));
         switch (phaseParams.initState)
         {
-            case InitState::RandomUniform:
+            case MathEngine::InitState::Uniform:
                 modelParams.iPhase = MathEngine::random_uniform(modelParams.N, phaseParams.minVal, phaseParams.maxVal, pSeed);
                 break;
-            case InitState::RandomNormal:
+            case MathEngine::InitState::Normal:
                 modelParams.iPhase = MathEngine::random_normal(modelParams.N, phaseParams.mean, phaseParams.stddev, pSeed);
                 break;
-            case InitState::RandomCauchy:
+            case MathEngine::InitState::Cauchy:
                 modelParams.iPhase = MathEngine::random_cauchy(modelParams.N, phaseParams.location, phaseParams.scale, pSeed);
                 break;
-            case InitState::RandomExponential:
+            case MathEngine::InitState::Exponential:
                 modelParams.iPhase = MathEngine::random_exponential(modelParams.N, phaseParams.rate, pSeed);
                 break;
-            case InitState::RandomCircle:
+            case MathEngine::InitState::Circle:
                 modelParams.iPhase = MathEngine::random_circle(modelParams.N, pSeed);
                 break;
-            case InitState::Splay:
+            case MathEngine::InitState::Splay:
                 modelParams.iPhase = MathEngine::splay(modelParams.N);
                 break;
-            case InitState::SplayPerturbed:
+            case MathEngine::InitState::SplayPerturbed:
                 modelParams.iPhase = MathEngine::splay_perturbed(modelParams.N, phaseParams.perturbation, pSeed);
                 break;
-            case InitState::Modules: {
-                std::string dist_type = moduleTypeIds[phaseParams.moduleTypeIndex];
-                modelParams.iPhase = MathEngine::modules(modelParams.sModules, modelParams.nModules, dist_type, phaseParams.param1, phaseParams.param2, pSeed, phaseParams.identical);
+            case MathEngine::InitState::Modules: {
+                modelParams.iPhase = MathEngine::modules(modelParams.sModules,modelParams.nModules,phaseParams.moduleType,
+                                                         phaseParams.param1,phaseParams.param2,pSeed,phaseParams.identical);
                 break;
             }
         }
@@ -547,33 +524,34 @@ inline void AppState::DrawInitialsPanelContent()
     ImGui::Spacing();
     ImGui::SeparatorText("Intrinsic Frequencies");
     if (ImGui::Combo("Freq Dist", &frqncParams.typeIndex, dsStateNames, 8))
-        frqncParams.initState = static_cast<InitState>(frqncParams.typeIndex);
+        frqncParams.initState = static_cast<MathEngine::InitState>(frqncParams.typeIndex);
     switch (frqncParams.initState)
     {
-        case InitState::RandomUniform:
+        case MathEngine::InitState::Uniform:
             ImGui::InputDouble("Min##F", &frqncParams.minVal, 0.0001, 0.01, "%.15g");
             if (ImGui::InputDouble("Max##F", &frqncParams.maxVal, 0.0001, 0.01, "%.15g"))
                 frqncParams.maxVal=std::max(frqncParams.minVal,frqncParams.maxVal);
             break;
-        case InitState::RandomNormal:
+        case MathEngine::InitState::Normal:
             ImGui::InputDouble("Mean##F", &frqncParams.mean, 0.0001, 0.01, "%.15g");
             if (ImGui::InputDouble("Stddev##F", &frqncParams.stddev, 0.0001, 0.01, "%.15g"))
                 frqncParams.stddev=std::max(1e-5,frqncParams.stddev);
         	break;
-        case InitState::RandomCauchy:
+        case MathEngine::InitState::Cauchy:
             ImGui::InputDouble("Location##F", &frqncParams.location, 0.0001, 0.01, "%.15g");
             if (ImGui::InputDouble("Scale##F", &frqncParams.scale, 0.0001, 0.01, "%.15g"))
                 frqncParams.scale=std::max(1e-5,frqncParams.scale);
         	break;
-        case InitState::RandomExponential:
+        case MathEngine::InitState::Exponential:
             if (ImGui::InputDouble("Rate##F", &frqncParams.rate, 0.0001, 0.01, "%.15g"))
                 frqncParams.rate=std::max(1e-5,frqncParams.rate);
         	break;
-        case InitState::SplayPerturbed:
+        case MathEngine::InitState::SplayPerturbed:
             ImGui::InputDouble("Perturbation##F", &frqncParams.perturbation, 0.000001, 0.0001, "%.15g");
             break;
-        case InitState::Modules:
-            ImGui::Combo("Module State##F", &frqncParams.moduleTypeIndex, moduleTypeNames, 7);
+        case MathEngine::InitState::Modules:
+            if (ImGui::Combo("Module State##F", &frqncParams.moduleTypeIndex, moduleTypeNames, 7))
+                frqncParams.moduleType=static_cast<MathEngine::InitType>(frqncParams.moduleTypeIndex);
             ImGui::InputDouble("Param 1##F", &frqncParams.param1, 0.0001, 0.01, "%.15g");
             ImGui::InputDouble("Param 2##F", &frqncParams.param2, 0.0001, 0.01, "%.15g");
             ImGui::Checkbox("Identical Modules##F", &frqncParams.identical);
@@ -586,30 +564,30 @@ inline void AppState::DrawInitialsPanelContent()
         size_t fSeed = static_cast<size_t>(std::max(1, frqncParams.seed));
         switch (frqncParams.initState)
         {
-            case InitState::RandomUniform:
+            case MathEngine::InitState::Uniform:
                 modelParams.iFrqnc = MathEngine::random_uniform(modelParams.N, frqncParams.minVal, frqncParams.maxVal, fSeed);
                 break;
-            case InitState::RandomNormal:
+            case MathEngine::InitState::Normal:
                 modelParams.iFrqnc = MathEngine::random_normal(modelParams.N, frqncParams.mean, frqncParams.stddev, fSeed);
                 break;
-            case InitState::RandomCauchy:
+            case MathEngine::InitState::Cauchy:
                 modelParams.iFrqnc = MathEngine::random_cauchy(modelParams.N, frqncParams.location, frqncParams.scale, fSeed);
                 break;
-            case InitState::RandomExponential:
+            case MathEngine::InitState::Exponential:
                 modelParams.iFrqnc = MathEngine::random_exponential(modelParams.N, frqncParams.rate, fSeed);
                 break;
-            case InitState::RandomCircle:
+            case MathEngine::InitState::Circle:
                 modelParams.iFrqnc = MathEngine::random_circle(modelParams.N, fSeed);
                 break;
-            case InitState::Splay:
+            case MathEngine::InitState::Splay:
                 modelParams.iFrqnc = MathEngine::splay(modelParams.N);
                 break;
-            case InitState::SplayPerturbed:
+            case MathEngine::InitState::SplayPerturbed:
                 modelParams.iFrqnc = MathEngine::splay_perturbed(modelParams.N, frqncParams.perturbation, fSeed);
                 break;
-            case InitState::Modules: {
-                std::string dist_type = moduleTypeIds[frqncParams.moduleTypeIndex];
-                modelParams.iFrqnc = MathEngine::modules(modelParams.sModules, modelParams.nModules, dist_type, frqncParams.param1, frqncParams.param2, fSeed, frqncParams.identical);
+            case MathEngine::InitState::Modules: {
+                modelParams.iFrqnc = MathEngine::modules(modelParams.sModules,modelParams.nModules,frqncParams.moduleType,
+                                                         frqncParams.param1,frqncParams.param2,fSeed,frqncParams.identical);
                 break;
             }
         }
@@ -669,18 +647,24 @@ inline void AppState::DrawSolverParametersPanelContent()
             break;
         case SolverMethod::RK2:
             solverParams.solverFunc = rk2_wrapper();
+            break;
         case SolverMethod::RK3:
 	        solverParams.solverFunc = rk3_wrapper();
+            break;
         case SolverMethod::RK4:
             solverParams.solverFunc = rk4_wrapper();
+            break;
         case SolverMethod::RK4_38:
             solverParams.solverFunc = rk4_38_wrapper();
+            break;
         case SolverMethod::RK4_Gill:
             solverParams.solverFunc = rk4_gill_wrapper();
+            break;
         case SolverMethod::RK4_Ralston:
             solverParams.solverFunc = rk4_ralston_wrapper();
+            break;
         default:
-            solverParams.solverFunc = rk1_wrapper();
+            solverParams.solverFunc = rk4_wrapper();
             break;
     }
     ImGui::Spacing();
@@ -796,7 +780,7 @@ inline void AppState::RenderModals()
             else
             {
                 ImGuiTableFlags tableFlags = ImGuiTableFlags_ScrollX | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit;
-                if (ImGui::BeginTable("MatrixGrid", static_cast<int>(nCols + 1), tableFlags, ImVec2(0, 360)))
+                if (ImGui::BeginTable("MatrixGrid", static_cast<int>(nCols + 1), tableFlags, ImVec2(0, 400)))
                 {
                     ImGui::TableSetupScrollFreeze(1, 1);
                     ImGui::TableSetupColumn("Row\\Col", ImGuiTableColumnFlags_NoHide);
@@ -834,7 +818,7 @@ inline void AppState::RenderModals()
         ImGui::SetNextWindowSize(ImVec2(400, 400), ImGuiCond_Appearing);
         if (ImGui::Begin("Phase Array Values", &phaseParams.showArray))
         {
-            if (ImGui::BeginChild("PhaseList", ImVec2(0, 360), ImGuiChildFlags_Borders))
+            if (ImGui::BeginChild("PhaseList", ImVec2(0, 330), ImGuiChildFlags_Borders))
             {
                 if (modelParams.iPhase.empty())
                 {
@@ -859,7 +843,7 @@ inline void AppState::RenderModals()
         ImGui::SetNextWindowSize(ImVec2(400, 400), ImGuiCond_Appearing);
         if (ImGui::Begin("Frequency Array Values", &frqncParams.showArray))
         {
-            if (ImGui::BeginChild("FreqList", ImVec2(0, 360), ImGuiChildFlags_Borders))
+            if (ImGui::BeginChild("FreqList", ImVec2(0, 330), ImGuiChildFlags_Borders))
             {
                 if (modelParams.iFrqnc.empty())
                 {
@@ -889,7 +873,7 @@ inline void AppState::RenderModals()
             ImGui::Spacing();
 
             // Scrollable child box for array elements
-            if (ImGui::BeginChild("ArrayList", ImVec2(0, 360), ImGuiChildFlags_Borders))
+            if (ImGui::BeginChild("ArrayList", ImVec2(0, 330), ImGuiChildFlags_Borders))
             {
                 if (solverParams.solverParams.delayTimes.empty())
                 {
@@ -937,8 +921,8 @@ inline void AppState::StartSimulation()
         plotParams.offset = 0;
     }
     int stride = plotParams.Stride;
-    bool condPlotThird = (modelParams.kuramotoType==KuramotoType::KuramotoSpecial || adjParams.adjState==NetworkTopology::Modular ||
-    					adjParams.adjState==NetworkTopology::Hierarchical);
+    bool condPlotThird = (modelParams.kuramotoType==KuramotoType::KuramotoSpecial || adjParams.adjState==MathEngine::NetworkTopology::Modular ||
+    					adjParams.adjState==MathEngine::NetworkTopology::Hierarchical);
     solverParams.solverParams.onStep = [this, stepCount=0, stepCountCond=0, stride, condPlotThird](const MathEngine::OneStepSolverResult& res) mutable
     {
 		float progress = (res.timePoint-solverParams.solverParams.t0)*timeInv;
@@ -1041,8 +1025,9 @@ inline void AppState::DrawPlotWindow()
         if (plotParams.showPlot)
         {
             const ImGuiViewport* viewport = ImGui::GetMainViewport();
-            ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + 0.52*viewport->WorkSize.x - padding, viewport->WorkPos.y + padding),ImGuiCond_FirstUseEver);
-            ImGui::SetNextWindowSize(ImVec2(viewport->WorkSize.x * 0.48f, 0.75*viewport->WorkSize.y - (2 * padding)), ImGuiCond_FirstUseEver);
+            ImVec2 center = viewport->GetCenter();
+            ImGui::SetNextWindowPos(center, ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
+            ImGui::SetNextWindowSize(ImVec2(400, 480), ImGuiCond_FirstUseEver);
             if (ImGui::Begin("Order Parameter",&plotParams.showPlot))
             {
                 ImVec2 availableSpace = ImGui::GetContentRegionAvail();      // Set ImVec(-1,-1) to fill the whole window.
@@ -1050,15 +1035,49 @@ inline void AppState::DrawPlotWindow()
                 {
                     if (ImPlot::BeginPlot("(\U0001D70C-t) Plot"))
                     {
+                        ImPlotSpec spec;
+                        std::pair<double,double> xmm;
+                        std::pair<double,double> ymm;
+                        if (plotParams.plotX.empty())
+                        {
+                            xmm = {0.0,1.0};
+                            ymm = {0.0,1.0};
+                        }
+                        else
+                        {
+                            auto [xmin,xmax] = std::minmax_element(plotParams.plotX.begin(),plotParams.plotX.end());
+                            xmm = {*xmin-0.01,*xmax+0.01};
+                            auto [ymin,ymax] = std::minmax_element(plotParams.plotY.begin(),plotParams.plotY.end());
+                            ymm = {*ymin-0.01,*ymax+0.01};
+                        }
+                        ImPlot::SetupAxesLimits(xmm.first,xmm.second,ymm.first,ymm.second,ImPlotCond_Always);
+                        if (!plotParams.plotColors.empty())
+	                        spec.LineColor = plotParams.plotColors[0];
                         ImPlot::SetupAxes("Time (t)","Order (\U0001D70C)");
                         ImPlot::PlotLine("\U0001D70C",plotParams.plotX.data(),plotParams.plotY.data(),static_cast<int>(plotParams.plotX.size()));
-                        // ImPlot::PlotScatter("Points 1",runtimeX.data(),runtimeY.data(),static_cast<int>(runtimeX.size()));
                         ImPlot::EndPlot();
                     }
                     if (ImPlot::BeginPlot("(\U0001D70C-t) Plot##trailing"))
                     {
+                        std::pair<double,double> xmm;
+                        std::pair<double,double> ymm;
+                        if (plotParams.plotXTrail.empty())
+                        {
+                            xmm = {0.0,1.0};
+                            ymm = {0.0,1.0};
+                        }
+                        else
+                        {
+                            auto [xmin,xmax] = std::minmax_element(plotParams.plotXTrail.begin(),plotParams.plotXTrail.end());
+                            xmm = {*xmin-0.01,*xmax+0.01};
+                            auto [ymin,ymax] = std::minmax_element(plotParams.plotYTrail.begin(),plotParams.plotYTrail.end());
+                            ymm = {*ymin-0.01,*ymax+0.01};
+                        }
+                        ImPlot::SetupAxesLimits(xmm.first,xmm.second,ymm.first,ymm.second,ImPlotCond_Always);
                         ImPlotSpec spec;
                         spec.Offset = static_cast<int>(plotParams.offset);
+                        if (!plotParams.plotColors.empty())
+                            spec.LineColor = plotParams.plotColors[0];
                         ImPlot::SetupAxes("Time (t)","Order (\U0001D70C)");
                         ImPlot::PlotLine("\U0001D70C",plotParams.plotXTrail.data(),plotParams.plotYTrail.data(),static_cast<int>(plotParams.plotXTrail.size()),spec);
                         ImPlot::EndPlot();
@@ -1071,8 +1090,9 @@ inline void AppState::DrawPlotWindow()
         if (plotParams.showPlotSecond)
         {
             const ImGuiViewport* viewport = ImGui::GetMainViewport();
-            ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x+padding,viewport->WorkPos.y+0.25*viewport->WorkSize.y+padding),ImGuiCond_FirstUseEver);
-            ImGui::SetNextWindowSize(ImVec2(viewport->WorkSize.x*0.48f, 0.75*viewport->WorkSize.y-(2*padding)), ImGuiCond_FirstUseEver);
+            ImVec2 center = viewport->GetCenter();
+            ImGui::SetNextWindowPos(center, ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
+            ImGui::SetNextWindowSize(ImVec2(400, 250), ImGuiCond_FirstUseEver);
             if (ImGui::Begin("Oscillators",&plotParams.showPlotSecond))
             {
                 size_t plotN = plotParams.liveState.size();
@@ -1087,8 +1107,11 @@ inline void AppState::DrawPlotWindow()
                 if (ImPlot::BeginPlot("\U0001D73D Plot",availableSpace))
                 {
                     ImPlot::SetupAxes("x projection","y projection");
-                    // ImPlot::PlotLine("\U0001D70C",plotParams.plotX.data(),plotParams.plotY.data(),static_cast<int>(plotParams.plotX.size()));
-                    ImPlot::PlotScatter("\U0001D73D",xTheta.data(),yTheta.data(),static_cast<int>(plotN));
+                    ImPlot::SetupAxesLimits(-1.01,1.01,-1.01,1.01,ImPlotCond_Always);
+                    ImPlotSpec spec;
+                    if (!plotParams.plotSecondColors.empty())
+	                    spec.LineColor = plotParams.plotSecondColors[0];
+                    ImPlot::PlotScatter("\U0001D73D",xTheta.data(),yTheta.data(),static_cast<int>(plotN), spec);
                     ImPlot::EndPlot();
                 }
             }
@@ -1105,7 +1128,7 @@ inline void AppState::DrawPlotWindow()
                 ImVec2 availableSpace = ImGui::GetContentRegionAvail();      // Set ImVec(-1,-1) to fill the whole window.
                 if (plotParams.plotYModules.empty() || plotParams.plotYModules.size()!=modelParams.nModules)
                 {
-                    if (ImPlot::BeginPlot("(\U0001D70C-t) Plot##modules",availableSpace))
+                    if (ImPlot::BeginPlot("(\U0001D70C-t) Plot (empty modules)##modules",availableSpace))
                     {
                         ImPlot::EndPlot();
                     }
@@ -1114,13 +1137,37 @@ inline void AppState::DrawPlotWindow()
                 {
                     if (ImPlot::BeginPlot("(\U0001D70C-t) Plot##modules",availableSpace))
                     {
-                        ImPlot::SetupAxes("Time (t)","Order (\U0001D70C)##modules");
+                        std::pair<double,double> xmm;
+                        std::pair<double,double> ymm;
+                        if (plotParams.plotX.empty())
+                        {
+                            xmm = {0.0,1.0};
+                            ymm = {0.0,1.0};
+                        }
+                        else
+                        {
+                            auto [xmin,xmax] = std::minmax_element(plotParams.plotX.begin(),plotParams.plotX.end());
+                            xmm = {*xmin-0.01,*xmax+0.01};
+                            MathEngine::dVec ymms;
+                            for (size_t i=0; i<modelParams.nModules; ++i)
+                            {
+                                auto [ymin_,ymax_] = std::minmax_element(plotParams.plotYModules[i].begin(),plotParams.plotYModules[i].end());
+                                ymms.push_back(*ymin_); ymms.push_back(*ymax_);
+                            }
+                            auto [ymin,ymax] = std::minmax_element(ymms.begin(),ymms.end());
+                            ymm = {*ymin-0.01,*ymax+0.01};
+                        }
+                        ImPlot::SetupAxesLimits(xmm.first,xmm.second,ymm.first,ymm.second,ImPlotCond_Always);
+                        ImPlot::SetupAxes("Time (t)","Order (\U0001D70C)");
                         std::string label = "\U0001D70C";
                         for (size_t i=0; i<modelParams.nModules; ++i)
                         {
                             label = "\U0001D70C "+std::to_string(i);
+                            ImPlotSpec spec;
+                            if (plotParams.plotThirdColors.size()>i)
+                                spec.LineColor = plotParams.plotThirdColors[i];
                             ImPlot::PlotLine(label.c_str(),plotParams.plotX.data(),plotParams.plotYModules[i].data(),
-                                            static_cast<int>(plotParams.plotX.size()));
+                                            static_cast<int>(plotParams.plotX.size()),spec);
                         }
                         ImPlot::EndPlot();
                     }
@@ -1144,28 +1191,21 @@ inline void AppState::DrawPlotPanelContent()
             ImGui::Spacing();
             ImGui::SeparatorText("Line Color##main plot");
             ImGui::Spacing();
-            float colorR=0.2f, colorG=0.5f, colorB=0.5f, colorA=1.0f;
-            ImGui::SliderFloat("R##main plot line", &colorR,0.0f,1.0f,"%.2f");
-            ImGui::SliderFloat("G##main plot line", &colorG,0.0f,1.0f,"%.2f");
-            ImGui::SliderFloat("B##main plot line", &colorB,0.0f,1.0f,"%.2f");
-            ImGui::SliderFloat("A (opacity)##main plot line", &colorA,0.0f,1.0f,"%.2f");
-            if (ImGui::Button("Set Color(s)##main plot",ImVec2(-1,0))) plotParams.plotColors.push_back(ImVec4(colorR,colorG,colorB,colorA));
+            if (plotParams.plotColors.empty())
+                plotParams.plotColors.push_back(ImVec4(0.2f,0.8f,0.8f,1.0f));
+            ImGui::ColorEdit4("\U0001D70C-t Colors (main)",&plotParams.plotColors[0].x);
         }
         if (ImGui::CollapsingHeader("\U0001D73D Plot##second plot"))
         {
-            ImGui::Checkbox("Show \U0001D73D Plot##second plot", &plotParams.showPlotSecond);
+            ImGui::Checkbox("Show \U0001D73D Plot", &plotParams.showPlotSecond);
             ImGui::Spacing();
             ImGui::SeparatorText("Line Color##second plot");
             ImGui::Spacing();
-            float colorR=0.2f, colorG=0.5f, colorB=0.5f, colorA=1.0f;
-            ImGui::SliderFloat("R##second plot line", &colorR,0.0f,1.0f,"%.2f");
-            ImGui::SliderFloat("G##second plot line", &colorG,0.0f,1.0f,"%.2f");
-            ImGui::SliderFloat("B##second plot line", &colorB,0.0f,1.0f,"%.2f");
-            ImGui::SliderFloat("A (opacity)##second plot line", &colorA,0.0f,1.0f,"%.2f");
-            if (ImGui::Button("Set Color(s)##second plot",ImVec2(-1,0)))
-                plotParams.plotSecondColors.push_back(ImVec4(colorR,colorG,colorB,colorA));
+            if (plotParams.plotSecondColors.empty())
+                plotParams.plotSecondColors.push_back(ImVec4(0.2f,0.8f,0.8f,1.0f));
+            ImGui::ColorEdit4("\U0001D73D Colors",&plotParams.plotSecondColors[0].x);
         }
-        if (adjParams.adjState==NetworkTopology::Modular || adjParams.adjState==NetworkTopology::Hierarchical || modelParams.kuramotoType==KuramotoType::KuramotoSpecial)
+        if (adjParams.adjState==MathEngine::NetworkTopology::Modular || adjParams.adjState==MathEngine::NetworkTopology::Hierarchical || modelParams.kuramotoType==KuramotoType::KuramotoSpecial)
         {
             if (ImGui::CollapsingHeader("\U0001D73D Plot (Modules)##third plot"))
             {
@@ -1174,26 +1214,12 @@ inline void AppState::DrawPlotPanelContent()
                 ImGui::SeparatorText("Line Color##third plot");
                 ImGui::Spacing();
                 size_t nM = modelParams.nModules;
-                MathEngine::Vec<float> colorAs(nM);MathEngine::Vec<float> colorRs(nM);
-                MathEngine::Vec<float> colorGs(nM);MathEngine::Vec<float> colorBs(nM);
+                if (plotParams.plotThirdColors.size()!=nM)
+                    plotParams.plotThirdColors.resize(nM,ImVec4(0.2f,0.8f,0.8f,1.0f));
                 for (size_t i=0; i<nM; ++i)
                 {
-                    std::string rLabel = "R ("+std::to_string(i+1)+")##third plot line";
-                    std::string gLabel = "G ("+std::to_string(i+1)+")##third plot line";
-                    std::string bLabel = "B ("+std::to_string(i+1)+")##third plot line";
-                    std::string aLabel = "A ("+std::to_string(i+1)+")##third plot line";
-                    ImGui::SliderFloat(rLabel.c_str(), &colorRs[i],0.0f,1.0f,"%.2f");
-                    ImGui::SliderFloat(gLabel.c_str(), &colorGs[i],0.0f,1.0f,"%.2f");
-                    ImGui::SliderFloat(bLabel.c_str(), &colorBs[i],0.0f,1.0f,"%.2f");
-                    ImGui::SliderFloat(aLabel.c_str(), &colorAs[i],0.0f,1.0f,"%.2f");
-					ImGui::Separator();
-                }
-                if (ImGui::Button("Set Color(s)##third plot",ImVec2(-1,0)))
-                {
-                    for (size_t i=0; i<nM; ++i)
-                    {
-                        plotParams.plotThirdColors.push_back(ImVec4(colorRs[i],colorGs[i],colorBs[i],colorAs[i]));
-                    }
+                    std::string label = "\U0001D70C-t ("+std::to_string(i+1)+")##third plot line";
+                    ImGui::ColorEdit4(label.c_str(),&plotParams.plotThirdColors[i].x);
                 }
             }
         }

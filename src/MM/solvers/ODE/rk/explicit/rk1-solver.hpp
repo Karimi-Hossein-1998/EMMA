@@ -37,9 +37,50 @@ inline SolverResults rk1_solver(const SolverParameters& Params)
         for (size_t j = 0; j < N; ++j)
             y[j] += dt * k1[j];
         
+        solution[i + 1]    = y;
+        timePoints[i + 1] = t + dt;
+    }
+
+    auto results        = SolverResults{};
+    results.solution    = solution;
+    results.timePoints = timePoints;
+    return results;
+}
+
+inline SolverResults rk1_solver_callback(const SolverParameters& Params)
+{
+    // Extract parameters for clarity
+    const auto&  f  = Params.derivative;
+    const auto&  y0 = Params.initialConditions;
+    const double t0 = Params.t0;
+    const double t1 = Params.t1;
+    const double dt = Params.dt;
+    const size_t N  = y0.size();
+
+    // Initialize solution storage
+    const size_t num_steps   = static_cast<size_t>((t1 - t0) / dt);
+    auto         solution    = dMatrix(num_steps + 1, dVec(N));
+    auto         timePoints = dVec(num_steps + 1);
+
+    solution[0]    = y0;
+    timePoints[0] = t0;
+
+    auto  y = y0;
+    dVec  k1(N, 0.0);
+
+    OneStepSolverResult stepRes;
+    // Main integration loop
+    for (size_t i = 0; i < num_steps; ++i)
+    {
+        const double t = timePoints[i];
+
+        k1 = f(t, y);
+        for (size_t j = 0; j < N; ++j)
+            y[j] += dt * k1[j];
+
         if (Params.onStep)
         {
-        	stepRes.sol = y;
+            stepRes.sol = y;
             stepRes.timePoint = t;
             stepRes.stepSize = dt;
             Params.onStep(stepRes);

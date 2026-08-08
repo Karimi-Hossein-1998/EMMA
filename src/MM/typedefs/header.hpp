@@ -41,6 +41,7 @@ using iVec           = Vec<int>;                                                
 using uVec           = Vec<unsigned int>;                                         // 1D vector of unsigned integers
 using bVec           = Vec<bool>;                                                 // 1D vector of booleans
 using sVec           = Vec<std::string>;                                          // 1D vector of strings
+using wpairVec       = Vec<std::pair<size_t,size_t>>;
 using dpairVec       = Vec<std::pair<double, double>>;                            // 1D vector of (double, double) pairs
 using spairVec       = Vec<std::pair<std::string, std::string>>;                  // 1D vector of (string, string) pairs
 using triple         = std::array<double, 3>;
@@ -57,8 +58,8 @@ using MyFunc         = std::function<dVec(double, const dVec&)>;                
 using DelayFunc      = std::function<dVec(double, const dVec&, const dVec&)>;     // DDE function type (single delay) taking (double, dVec, dVec) and returning dVec
 using DelayFuncMulti = std::function<dVec(double, const dVec&, const dMatrix&)>;   // DDE function type (multiple delays) taking (double, dVec, dMatrix) and returning dVec
 
-using interPolater   = std::function<func(const dVec&, const dVec&)>;
-using InterPolater   = std::function<Func(const dVec&, const dMatrix&)>;
+using interPolater = std::function<func(const dVec&, const dVec&)>;
+using InterPolater = std::function<Func(const dVec&, const dMatrix&)>;
 
 // Call Back Function to get data on the fly
 struct OneStepSolverResult
