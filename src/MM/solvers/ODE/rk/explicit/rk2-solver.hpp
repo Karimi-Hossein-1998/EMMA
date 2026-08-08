@@ -15,6 +15,7 @@ inline SolverResults rk2(const SolverParameters& Params)
     const double t1 = Params.t1;
     const double dt = Params.dt;
     const size_t N  = y0.size();
+    if (N==0 || dt<=1e-13 || t0>t1) return SolverResults{};
 
     // Initialize solution storage
     const size_t num_steps  = static_cast<size_t>(std::round((t1 - t0) / dt));
