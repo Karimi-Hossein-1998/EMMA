@@ -4,20 +4,20 @@
 namespace MathEngine
 { // MathEngine namespace
 // General Kuramoto model with phase-lag and flexible dMatrix
-inline dVec  kuramoto_general(
-    double              time,
-    const dVec&         theta,
-    const dVec&         omega,
-    double              K,
-    const dMatrix&       adj,
-    double              alpha
+inline void kuramoto_general(
+    double         time,
+    const dVec&    theta,
+    dVec&          dthetadt,
+    const dVec&    omega,
+    double         K,
+    const dMatrix& adj,
+    double         alpha
 )
 {
     const size_t N = theta.size(); // N is derived from theta, so N > 0 here.
 
     // Original logic
-    dVec  dtheta_dt = dVec( N, 0.0 );
-    auto  k_norm    = K / static_cast<double>( N ); // Renamed k to k_norm for clarity
+    double k_norm    = K / static_cast<double>( N ); // Renamed k to k_norm for clarity
     for ( size_t i = 0; i < N; ++i )
     {
         double sum = 0.0;
@@ -25,15 +25,16 @@ inline dVec  kuramoto_general(
         {
             sum += adj[i][j] * std::sin( theta[j] - theta[i] - alpha );
         }
-        dtheta_dt[i] = omega[i] + k_norm * sum;
+        dthetadt[i] = omega[i] + k_norm * sum;
     }
-    return dtheta_dt;
+    // return dthetadt;
 }
 
 // General Kuramoto model with phase-lag and flexible dMatrix (parallel)
-inline dVec  kuramoto_general_parallel(
+inline void kuramoto_general_parallel(
     double              time,
     const dVec&         theta,
+    dVec&               dthetadt,
     const dVec&         omega,
     double              K,
     const dMatrix&       adj,
@@ -42,13 +43,12 @@ inline dVec  kuramoto_general_parallel(
 {
     const size_t N = theta.size(); // N is derived from theta, so N > 0 here.
 
-    std::vector<std::jthread> threads;
+    Vec<std::jthread> threads;
     size_t num_threads = std::min(N, static_cast<size_t>(std::max(1u, std::thread::hardware_concurrency())));
     if ( num_threads == 0 ) num_threads = 1;
     size_t chunk_size  = N / num_threads;
-    auto   k_norm      = K / static_cast<double>( N ); // Renamed k = K/N to k_norm for clarity
-    dVec   dtheta_dt   = dVec( N, 0.0 );
-    
+    double k_norm      = K / static_cast<double>( N ); // Renamed k = K/N to k_norm for clarity
+
     for (size_t t = 0; t < num_threads; ++t) 
     {
         threads.emplace_back([&, t]() 
@@ -63,26 +63,14 @@ inline dVec  kuramoto_general_parallel(
                 {
                     sum += adj[i][j] * std::sin(theta[j] - theta[i] - alpha);
                 }
-                dtheta_dt[i] = omega[i] + k_norm * sum;
+                dthetadt[i] = omega[i] + k_norm * sum;
             }
         });
     }
     // No need to join, jthread automatically joins in destructor
-    return dtheta_dt;
+    // return dthetadt;
 } 
 
-// ======================================== //
-//                                          //
-// ------------ Wrappers ------------------ //
-//                                          //
-// ======================================== //
-//
-// Usage: 
-// KuramotoParams params(N, alpha);
-// params.K     = 1.0;
-// params.omega = splay(N);
-// params.adj   = random(N)
-// auto kuramoto_func = kuramoto_general_parallel_wrapper(t, theta, params);
 // ======================================== //
 //                                          //
 // ------------ Wrappers ------------------ //
@@ -116,17 +104,17 @@ struct KuramotoParams
 
 inline MyFunc kuramoto_general_wrapper(const KuramotoParams& params)
 {
-    return [params](double t, const dVec& theta) -> dVec
+    return [params](double t, const dVec& theta, dVec& dthetadt) -> void
     {
-        return kuramoto_general(t, theta, params.omega, params.K, params.adj, params.alpha);
+        return kuramoto_general(t, theta, dthetadt, params.omega, params.K, params.adj, params.alpha);
     };
 }
 
 inline MyFunc kuramoto_general_parallel_wrapper(const KuramotoParams& params)
 {
-    return [params](double t, const dVec& theta) -> dVec
+    return [params](double t, const dVec& theta, dVec& dthetadt) -> void
     {
-        return kuramoto_general_parallel(t, theta, params.omega, params.K, params.adj, params.alpha);
+        return kuramoto_general_parallel(t, theta, dthetadt, params.omega, params.K, params.adj, params.alpha);
     };
 }
 } // End namespace MathEngine

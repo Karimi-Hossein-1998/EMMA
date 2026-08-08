@@ -4,9 +4,10 @@
 namespace MathEngine
 { // MathEngine namespace
 // General Kuramoto model with phase-lag and sparse dMatrix
-inline dVec  kuramoto_sparse(
+inline void kuramoto_sparse(
     double               time,
     const dVec&          theta,
+    dVec&                dthetadt,
     const dVec&          omega,
     double               K,
     const SparsedMatrix& sparse_adj,
@@ -16,8 +17,7 @@ inline dVec  kuramoto_sparse(
     const size_t N = theta.size(); // N > 0 here
 
     // Original logic
-    dVec  dtheta_dt = dVec( N, 0.0 );
-    auto  k_norm    = K / static_cast<double>( N ); // Renamed k to k_norm
+    double k_norm    = K / static_cast<double>( N ); // Renamed k to k_norm
     for ( size_t i = 0; i < N; ++i )
     {
         double sum = 0.0;
@@ -27,15 +27,16 @@ inline dVec  kuramoto_sparse(
             double weight = edge_pair.second;
             sum += weight * std::sin( theta[j] - theta[i] - alpha );
         }
-        dtheta_dt[i] = omega[i] + k_norm * sum;
+        dthetadt[i] = omega[i] + k_norm * sum;
     }
-    return dtheta_dt;
+    // return dtheta_dt;
 }
 
 // General Kuramoto model with phase-lag and sparse dMatrix (parallel)
-inline dVec  kuramoto_sparse_parallel(
+inline void kuramoto_sparse_parallel(
     double              time,
     const dVec&         theta,
+    dVec&               dthetadt,
     const dVec&         omega,
     double              K,
     const SparsedMatrix& sparse_adj,
@@ -45,8 +46,7 @@ inline dVec  kuramoto_sparse_parallel(
     const size_t N = theta.size(); // N > 0 here
 
     // Original logic
-    dVec  dtheta_dt = dVec( N, 0.0 );
-    auto  k_norm    = K / static_cast<double>( N ); // Renamed k to k_norm
+    double k_norm    = K / static_cast<double>( N ); // Renamed k to k_norm
     std::vector<std::jthread> threads;
     size_t num_threads = std::min(N, static_cast<size_t>(std::max(1u, std::thread::hardware_concurrency())));
     if ( num_threads == 0 ) num_threads = 1;
@@ -68,13 +68,13 @@ inline dVec  kuramoto_sparse_parallel(
                     double weight = edge_pair.second;
                     sum          += weight * std::sin( theta[j] - theta[i] - alpha );
                 }
-                dtheta_dt[i] = omega[i] + k_norm * sum;
+                dthetadt[i] = omega[i] + k_norm * sum;
             }
         });
     }
     // No need to join, jthread automatically joins in destructor
-    return dtheta_dt;
-} 
+    // return dtheta_dt;
+}
 
 // ======================================== //
 //                                          //
@@ -100,17 +100,17 @@ struct KuramotoSparseParams
 
 inline MyFunc kuramoto_sparse_wrapper(const KuramotoSparseParams& params)
 {
-    return [params](double time, const dVec& theta) -> dVec 
+    return [params](double time, const dVec& theta, dVec& dthetadt) -> void
     {
-        return kuramoto_sparse_parallel(time, theta, params.omega, params.K, params.sparse_adj, params.alpha);
+        return kuramoto_sparse_parallel(time, theta, dthetadt, params.omega, params.K, params.sparse_adj, params.alpha);
     };
 }
 
 inline MyFunc kuramoto_sparse_parallel_wrapper(const KuramotoSparseParams& params)
 {
-    return [params](double time, const dVec& theta) -> dVec 
+    return [params](double time, const dVec& theta, dVec& dthetadt) -> void
     {
-        return kuramoto_sparse_parallel(time, theta, params.omega, params.K, params.sparse_adj, params.alpha);
+        return kuramoto_sparse_parallel(time, theta, dthetadt, params.omega, params.K, params.sparse_adj, params.alpha);
     };
 }
 } // End namespace MathEngine

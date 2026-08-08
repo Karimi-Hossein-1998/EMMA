@@ -54,7 +54,7 @@ using bMatrix        = Matrix<bool>;
 using sMatrix        = Matrix<std::string>;
 using func           = std::function<double(double)>;                             // Function type taking double and returning double
 using Func           = std::function<dVec(double)>;                               // Function type taking double and returning dVec
-using MyFunc         = std::function<dVec(double, const dVec&)>;                  // ODE function type taking (double, dVec) and returning dVec
+using MyFunc         = std::function<void(double, const dVec&, dVec&)>;                  // ODE function type taking (double, dVec) and returning dVec
 using DelayFunc      = std::function<dVec(double, const dVec&, const dVec&)>;     // DDE function type (single delay) taking (double, dVec, dVec) and returning dVec
 using DelayFuncMulti = std::function<dVec(double, const dVec&, const dMatrix&)>;   // DDE function type (multiple delays) taking (double, dVec, dMatrix) and returning dVec
 

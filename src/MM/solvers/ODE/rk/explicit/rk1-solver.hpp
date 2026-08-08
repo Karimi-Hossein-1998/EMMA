@@ -6,7 +6,10 @@ namespace MathEngine
 // Euler's method (RK1)
 // The simplest explicit method for numerical integration, using a single
 // derivative evaluation per step. It's first-order and has limited accuracy.
-inline SolverResults rk1_solver(const SolverParameters& Params)
+namespace funcWrapper
+{
+template <bool EnableCallBack>
+inline SolverResults rk1(const SolverParameters& Params)
 {
     // Extract parameters for clarity
     const auto&  f  = Params.derivative;
@@ -17,15 +20,15 @@ inline SolverResults rk1_solver(const SolverParameters& Params)
     const size_t N  = y0.size();
 
     // Initialize solution storage
-    const size_t num_steps   = static_cast<size_t>((t1 - t0) / dt);
-    auto         solution    = dMatrix(num_steps + 1, dVec(N));
+    const size_t num_steps  = static_cast<size_t>(std::round((t1 - t0) / dt));
+    auto         solution   = dMatrix(num_steps + 1, dVec(N));
     auto         timePoints = dVec(num_steps + 1);
 
-    solution[0]    = y0;
+    solution[0]   = y0;
     timePoints[0] = t0;
 
-    auto  y = y0;
-    dVec  k1(N, 0.0);
+    auto y = y0;
+    dVec k1(N, 0.0);
 
     OneStepSolverResult stepRes;
     // Main integration loop
@@ -33,66 +36,39 @@ inline SolverResults rk1_solver(const SolverParameters& Params)
     {
         const double t = timePoints[i];
 
-        k1 = f(t, y);
+        f(t, y, k1);
         for (size_t j = 0; j < N; ++j)
             y[j] += dt * k1[j];
-        
-        solution[i + 1]    = y;
-        timePoints[i + 1] = t + dt;
+
+        solution[i + 1] = y;
+        const double t_next = (i+1)==num_steps?t1:t0+(i+1)*dt;
+        timePoints[i + 1] = t_next;
+        if constexpr (EnableCallBack)
+        {
+            if (Params.onStep)
+            {
+                stepRes.sol = y;
+                stepRes.timePoint = t0+(i+1)*dt;
+                stepRes.stepSize = dt;
+                Params.onStep(stepRes);
+            }
+        }
     }
 
-    auto results        = SolverResults{};
-    results.solution    = solution;
+    auto results       = SolverResults{};
+    results.solution   = solution;
     results.timePoints = timePoints;
     return results;
 }
+} // End funcWrapper namespace
 
+inline SolverResults rk1_solver(const SolverParameters& Params)
+{
+    return funcWrapper::rk1<false>(Params);
+}
 inline SolverResults rk1_solver_callback(const SolverParameters& Params)
 {
-    // Extract parameters for clarity
-    const auto&  f  = Params.derivative;
-    const auto&  y0 = Params.initialConditions;
-    const double t0 = Params.t0;
-    const double t1 = Params.t1;
-    const double dt = Params.dt;
-    const size_t N  = y0.size();
-
-    // Initialize solution storage
-    const size_t num_steps   = static_cast<size_t>((t1 - t0) / dt);
-    auto         solution    = dMatrix(num_steps + 1, dVec(N));
-    auto         timePoints = dVec(num_steps + 1);
-
-    solution[0]    = y0;
-    timePoints[0] = t0;
-
-    auto  y = y0;
-    dVec  k1(N, 0.0);
-
-    OneStepSolverResult stepRes;
-    // Main integration loop
-    for (size_t i = 0; i < num_steps; ++i)
-    {
-        const double t = timePoints[i];
-
-        k1 = f(t, y);
-        for (size_t j = 0; j < N; ++j)
-            y[j] += dt * k1[j];
-
-        if (Params.onStep)
-        {
-            stepRes.sol = y;
-            stepRes.timePoint = t;
-            stepRes.stepSize = dt;
-            Params.onStep(stepRes);
-        }
-        solution[i + 1]    = y;
-        timePoints[i + 1] = t + dt;
-    }
-
-    auto results        = SolverResults{};
-    results.solution    = solution;
-    results.timePoints = timePoints;
-    return results;
+    return funcWrapper::rk1<true>(Params);
 }
 
 // Basic interface wrapper for rk1_solver
