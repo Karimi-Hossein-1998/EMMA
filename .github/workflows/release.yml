@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  build-linux:
+  build-ubuntu:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -30,15 +30,44 @@ jobs:
       - name: Package
         run: |
           mkdir -p dist
-          cp build/EMMA dist/EMMA-linux-x86_64
-          chmod +x dist/EMMA-linux-x86_64
-          cd dist && zip EMMA-linux-x86_64.zip EMMA-linux-x86_64
+          cp build/EMMA dist/EMMA-ubuntu-x86_64
+          chmod +x dist/EMMA-ubuntu-x86_64
+          cd dist && zip EMMA-ubuntu-x86_64.zip EMMA-ubuntu-x86_64
 
       - name: Upload release asset
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/EMMA-linux-x86_64.zip
+          files: dist/EMMA-ubuntu-x86_64.zip
+
+  build-arch:
+    runs-on: ubuntu-latest
+    container: archlinux
+    steps:
+      - name: Install dependencies
+        run: pacman -Syu --noconfirm base-devel cmake git mesa libx11 libxrandr libxi libxcursor libxinerama wayland libxkbcommon
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DENABLE_NATIVE_ARCH=OFF
+
+      - name: Build
+        run: cmake --build build -j
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp build/EMMA dist/EMMA-arch-x86_64
+          chmod +x dist/EMMA-arch-x86_64
+          cd dist && zip EMMA-arch-x86_64.zip EMMA-arch-x86_64
+
+      - name: Upload release asset
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/EMMA-arch-x86_64.zip
 
   build-windows:
     runs-on: ubuntu-latest
