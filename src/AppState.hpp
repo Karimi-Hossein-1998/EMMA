@@ -169,6 +169,8 @@ class AppState
         Color BgColor = Color(15.0f,15.0f,15.0f);
         size_t initW = 800;
         size_t initH = 600;
+        float cellWidthBase = 1.0;
+        float cellHeightBase = 1.0;
         std::string appTitle;
         bool showStyleEditor=false;
         bool showDelays=false;
@@ -435,6 +437,16 @@ inline void AppState::DrawTopologyPanelContent()
         if (modelParams.kuramotoType == KuramotoType::KuramotoSparse)
         {
             sparseAdj = MathEngine::dense_to_sparse(adj);
+        }
+        for (size_t i=0; i<modelParams.N; ++i)
+        {
+            for (size_t j=0; j<modelParams.N; ++j)
+            {
+                char adjs[64];
+                snprintf(adjs,sizeof(adjs),"%.15g",adj[i][j]);
+                cellWidthBase = std::max(cellWidthBase,ImGui::CalcTextSize(adjs).x);
+                if (cellHeightBase ==1.0f) cellHeightBase = ImGui::CalcTextSize(adjs).y;
+            }
         }
     }
 
@@ -779,33 +791,76 @@ inline void AppState::RenderModals()
             }
             else
             {
-                ImGuiTableFlags tableFlags = ImGuiTableFlags_ScrollX | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit;
-                if (ImGui::BeginTable("MatrixGrid", static_cast<int>(nCols + 1), tableFlags, ImVec2(0, 400)))
+                if (nCols>500 || nRows>500)
                 {
-                    ImGui::TableSetupScrollFreeze(1, 1);
-                    ImGui::TableSetupColumn("Row\\Col", ImGuiTableColumnFlags_NoHide);
-                    for (size_t c = 0; c < nCols; ++c)
+                    const float cellHeight = cellHeightBase+5.0f;
+                    const float cellWidth = cellWidthBase+10.0f;
+                    const ImVec2 totalCanvasSize = ImVec2((nCols+1)*cellWidth,(nRows+1)*cellHeight);
+                    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,ImVec2(0,0));
+                    ImGuiWindowFlags windowFlags = ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_NoCollapse;
+                    if (ImGui::BeginChild("Matrix Grid",ImVec2(0,330), true, windowFlags));
                     {
-                        char colHeader[16];
-                        snprintf(colHeader, sizeof(colHeader), "[%03zu]", c+1);
-                        ImGui::TableSetupColumn(colHeader);
-                    }
-                    ImGui::TableHeadersRow();
-
-                    for (size_t r = 0; r < nRows; ++r)
-                    {
-                        ImGui::TableNextRow();
-                        ImGui::TableSetColumnIndex(0);
-                        ImGui::TextDisabled("[%03zu]", r+1);
-                        for (size_t c = 0; c < nCols; ++c)
+                        const float scrollX = ImGui::GetScrollX();
+                        const float scrollY = ImGui::GetScrollY();
+                        ImVec2 winSize = ImGui::GetWindowSize();
+                        int minCol = std::max(0,static_cast<int>(scrollX/cellWidth)-1);
+                        int maxCol = std::min(static_cast<int>(nCols),static_cast<int>((scrollX+winSize.x)/cellWidth)+1);
+                        int minRow = std::max(0,static_cast<int>(scrollY/cellHeight)-1);
+                        int maxRow = std::min(static_cast<int>(nRows),static_cast<int>((scrollY+winSize.y)/cellHeight)+1);
+                        ImGui::SetCursorPos(totalCanvasSize);
+                        ImGui::SetCursorPos(ImVec2(5.0f,0.0f));
+                        ImGui::TextColored(ImVec4(1.0,1.0,1.0,1.0), "Row\\Col");
+                        for (int c=minCol; c<maxCol; ++c)
                         {
-                            ImGui::TableSetColumnIndex(static_cast<int>(c + 1));
-                            double val = adj[r][c];
-                            if (val >= 1e-5) ImGui::TextColored(ImVec4(0.4f, 0.9f, 1.0f, 1.0f), "%.15g", val);
-                            else ImGui::TextDisabled("0.0000");
+                            ImGui::SetCursorPos(ImVec2((c+1)*cellWidth+5.0f,0.0f));
+                            ImGui::TextColored(ImVec4(0.9,0.9,0.9,1.0), "[%03d]",c+1);
+                        }
+                        for (int r=minRow; r<maxRow; ++r)
+                        {
+                            ImGui::SetCursorPos(ImVec2(5.0f,(r+1)*cellHeight));
+                            ImGui::TextColored(ImVec4(0.0,1.0,1.0,1.0), "[%03d]",r+1);
+                            for (int c=minCol; c<maxCol; ++c)
+                            {
+                                ImGui::SetCursorPos(ImVec2((c+1)*cellWidth+5.0f,(r+1)*cellHeight));
+                                double val = adj[r][c];
+                                if (val >= 1e-5) ImGui::TextColored(ImVec4(0.4f, 0.9f, 1.0f, 1.0f), "%.15g", val);
+                                else ImGui::TextDisabled("0.0000");
+                            }
                         }
                     }
-                    ImGui::EndTable();
+                    ImGui::EndChild();
+                    ImGui::PopStyleVar();
+                }
+                else
+                {
+                    ImGuiTableFlags tableFlags = ImGuiTableFlags_ScrollX | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingFixedFit;
+                    if (ImGui::BeginTable("MatrixGrid", static_cast<int>(nCols + 1), tableFlags, ImVec2(0, 400)))
+                    {
+                        ImGui::TableSetupScrollFreeze(1, 1);
+                        ImGui::TableSetupColumn("Row\\Col", ImGuiTableColumnFlags_NoHide);
+                        for (size_t c = 0; c < nCols; ++c)
+                        {
+                            char colHeader[16];
+                            snprintf(colHeader, sizeof(colHeader), "[%03zu]", c+1);
+                            ImGui::TableSetupColumn(colHeader);
+                        }
+                        ImGui::TableHeadersRow();
+
+                        for (size_t r = 0; r < nRows; ++r)
+                        {
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0);
+                            ImGui::TextColored(ImVec4(0.0,1.0,1.0,1.0),"[%03zu]", r+1);
+                            for (size_t c = 0; c < nCols; ++c)
+                            {
+                                ImGui::TableSetColumnIndex(static_cast<int>(c + 1));
+                                double val = adj[r][c];
+                                if (val >= 1e-5) ImGui::Text("%.15g", val);
+                                else ImGui::TextDisabled("0.0000");
+                            }
+                        }
+                        ImGui::EndTable();
+                    }
                 }
             }
         }
@@ -815,7 +870,7 @@ inline void AppState::RenderModals()
     if (phaseParams.showArray)
     {
         ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(400, 400), ImGuiCond_Appearing);
+        ImGui::SetNextWindowSize(ImVec2(500, 480), ImGuiCond_Appearing);
         if (ImGui::Begin("Phase Array Values", &phaseParams.showArray))
         {
             if (ImGui::BeginChild("PhaseList", ImVec2(0, 330), ImGuiChildFlags_Borders))
@@ -840,7 +895,7 @@ inline void AppState::RenderModals()
     if (frqncParams.showArray)
     {
         ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(400, 400), ImGuiCond_Appearing);
+        ImGui::SetNextWindowSize(ImVec2(500, 480), ImGuiCond_Appearing);
         if (ImGui::Begin("Frequency Array Values", &frqncParams.showArray))
         {
             if (ImGui::BeginChild("FreqList", ImVec2(0, 330), ImGuiChildFlags_Borders))

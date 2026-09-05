@@ -639,8 +639,8 @@ inline dMatrix hierarchical(
     level_decay = std::clamp(level_decay,0.0,1.0);
     if (levels == 0) return erdos_renyi(N, p_in, in_weight, out_weight, seed);
     // Check for potential size overflow
-    size_t max_nodes = N * (static_cast<size_t>(1) << (levels - 1)) * base_module_num;
-    size_t level_multiplier=base_module_num*(static_cast<size_t>(1)<<(levels-1)),module_num = base_module_num*level_multiplier;
+    size_t level_multiplier=(static_cast<size_t>(1)<<(levels-1)),module_num = base_module_num*level_multiplier;
+    size_t max_nodes = N * module_num;
     if (max_nodes / (N * base_module_num) != level_multiplier) return erdos_renyi(module_num,p_in,in_weight,out_weight,seed);
     double this_p_in  = p_in * std::pow(level_decay, levels - 1);
     double this_p_out = p_out * std::pow(level_decay, levels - 1);
