@@ -27,6 +27,7 @@
 #include <cstring>
 #include <string>
 #include <mutex>
+#include <thread>
 #include <atomic>
 using SolverFunc = std::function<MathEngine::SolverResults(const MathEngine::SolverParameters&)>;
 inline SolverFunc rk1_wrapper()
@@ -166,7 +167,7 @@ class AppState
         std::atomic<double> timeInv{0.0f};
         std::atomic<bool> isSimRunning{false};
         float padding = 10.0f;
-        Color BgColor = Color(15.0f,15.0f,15.0f);
+        Color BgColor = Color{15,15,15,255};
         size_t initW = 800;
         size_t initH = 600;
         float cellWidthBase = 1.0;
@@ -1025,7 +1026,7 @@ inline void AppState::StartSimulation()
             plotParams.plotXTrail.push_back(res.timePoint);
             plotParams.plotYTrail.push_back(rho);
         }
-        else
+        else if (plotParams.trailCount>0)
         {
             plotParams.plotXTrail[plotParams.offset] = res.timePoint;
             plotParams.plotYTrail[plotParams.offset] = rho;
@@ -1037,12 +1038,19 @@ inline void AppState::StartSimulation()
             plotParams.plotY.push_back(rho);
         }
     };
+#ifndef __EMSCRIPTEN__
     std::thread([this]()
     {
         solverParams.solverResults = solverParams.solverFunc(solverParams.solverParams);
         simProgress.store(1.0);
         isSimRunning.store(false);
     }).detach();
+#else
+    // Web: sync run (no pthreads).
+    solverParams.solverResults = solverParams.solverFunc(solverParams.solverParams);
+    simProgress.store(1.0);
+    isSimRunning.store(false);
+#endif
 }
 
 inline void AppState::DrawProgressBar()

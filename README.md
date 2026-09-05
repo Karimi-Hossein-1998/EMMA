@@ -14,6 +14,6 @@ This project aims to create a **_G_**_raphical_ **_U_**_ser_ **_I_**_nterface_ f
 
 + [x] Add Solver Picker.
 + [x]  Add Plotting.
-+ Add Saving to Files.
-+ Add Image and GIF Save Options.
-+ Add running Simulations in Loops, Forward-Backward Loops, and Loop inside Loops.
++ [ ] Add Saving to Files.
++ [ ] Add Image and GIF Save Options.
++ [ ] Add running Simulations in Loops, Forward-Backward Loops, and Loop inside Loops.
