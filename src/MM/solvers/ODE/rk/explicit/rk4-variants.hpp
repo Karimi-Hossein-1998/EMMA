@@ -100,7 +100,7 @@ inline SolverResults rk4_ralston(const SolverParameters& Params)
     auto y      = y0;
     auto y_temp = dVec(N, 0.0);
     dVec k1(N, 0.0), k2(N, 0.0), k3(N, 0.0), k4(N, 0.0);
-    auto c2 = 0.4, c3 = 0.45573725, c4 = 1;
+    auto c2 = 0.4, c3 = 0.45573725, c4 = 1.0;
     auto a21 = 0.4, a31 = 0.15875964, a32 = 0.29697761, a41 = 0.2181004, a42 = -3.05096516, a43 = 3.83286476;
     auto b1 = 0.17476028, b2 = -0.55148066, b3 = 1.2055356, b4 = 0.17118478;
 	auto dtc2 = dt*c2, dtc3 = dt*c3;
