@@ -45,7 +45,7 @@ jobs:
     container: archlinux
     steps:
       - name: Install dependencies
-        run: pacman -Syu --noconfirm base-devel cmake git mesa libx11 libxrandr libxi libxcursor libxinerama wayland libxkbcommon
+        run: pacman -Syu --noconfirm base-devel cmake git zip mesa libx11 libxrandr libxi libxcursor libxinerama wayland libxkbcommon
 
       - name: Checkout
         uses: actions/checkout@v4
