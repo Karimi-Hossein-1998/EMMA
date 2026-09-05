@@ -110,11 +110,11 @@ inline MyFunc kuramoto_general_wrapper(const KuramotoParams& params)
     };
 }
 
-inline MyFunc kuramoto_general_parallel_wrapper(const KuramotoParams& params)
-{
-    return [params](double t, const dVec& theta, dVec& dthetadt) -> void
-    {
-        return kuramoto_general_parallel(t, theta, dthetadt, params.omega, params.K, params.adj, params.alpha);
-    };
-}
+// inline MyFunc kuramoto_general_parallel_wrapper(const KuramotoParams& params)
+// {
+//     return [params](double t, const dVec& theta, dVec& dthetadt) -> void
+//     {
+//         return kuramoto_general_parallel(t, theta, dthetadt, params.omega, params.K, params.adj, params.alpha);
+//     };
+// }
 } // End namespace MathEngine
