@@ -43,7 +43,7 @@ inline void kuramoto_general_parallel(
 {
     const size_t N = theta.size(); // N is derived from theta, so N > 0 here.
 
-    Vec<std::jthread> threads;
+    Vec<std::thread> threads;
     size_t num_threads = std::min(N, static_cast<size_t>(std::max(1u, std::thread::hardware_concurrency())));
     if ( num_threads == 0 ) num_threads = 1;
     size_t chunk_size  = N / num_threads;
@@ -67,7 +67,7 @@ inline void kuramoto_general_parallel(
             }
         });
     }
-    // No need to join, jthread automatically joins in destructor
+    for (auto& t : threads) t.join();
     // return dthetadt;
 } 
 

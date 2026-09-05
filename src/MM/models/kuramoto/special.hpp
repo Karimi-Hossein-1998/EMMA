@@ -57,7 +57,7 @@ inline void kuramoto_special_modular_parallel(
 {
     const size_t N = theta.size(); // N is derived from theta, so N > 0 here.
 
-    std::vector<std::jthread> threads;
+    std::vector<std::thread> threads;
     size_t num_threads = std::min(N, static_cast<size_t>(std::max(1u, std::thread::hardware_concurrency())));
     if ( num_threads == 0 ) num_threads = 1;
     double intra_k    = intra_K / static_cast<double>( N ); // Renamed k = K/N to k_norm for clarity
@@ -94,7 +94,7 @@ inline void kuramoto_special_modular_parallel(
             }
         });
     }
-    // No need to join, jthread automatically joins in destructor
+    for (auto& t : threads) t.join();
     // return dtheta_dt;
 }
 

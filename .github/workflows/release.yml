@@ -1,0 +1,100 @@
+name: Build release artifacts
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev \
+            libxcursor-dev libxinerama-dev libwayland-dev libxkbcommon-dev
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DENABLE_NATIVE_ARCH=OFF
+
+      - name: Build
+        run: cmake --build build -j
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp build/EMMA dist/EMMA-linux-x86_64
+          chmod +x dist/EMMA-linux-x86_64
+          cd dist && zip EMMA-linux-x86_64.zip EMMA-linux-x86_64
+
+      - name: Upload release asset
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/EMMA-linux-x86_64.zip
+
+  build-windows:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install MinGW
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mingw-w64
+
+      - name: Configure
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_TOOLCHAIN_FILE=mingw-toolchain.cmake \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DENABLE_NATIVE_ARCH=OFF \
+            -DCMAKE_EXE_LINKER_FLAGS="-static"
+
+      - name: Build
+        run: cmake --build build -j
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp build/EMMA.exe dist/EMMA.exe
+          cd dist && zip EMMA-windows-x86_64.zip EMMA.exe
+
+      - name: Upload release asset
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/EMMA-windows-x86_64.zip
+
+  build-macos:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DENABLE_NATIVE_ARCH=OFF
+
+      - name: Build
+        run: cmake --build build -j
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp build/EMMA dist/EMMA-macos-arm64
+          chmod +x dist/EMMA-macos-arm64
+          cd dist && zip EMMA-macos-arm64.zip EMMA-macos-arm64
+
+      - name: Upload release asset
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/EMMA-macos-arm64.zip
