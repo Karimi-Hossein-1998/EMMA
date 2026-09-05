@@ -1,0 +1,58 @@
+name: Build and deploy web to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  pull_request:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.74
+
+      - name: Configure web build
+        run: emcmake cmake -S . -B build-web -DCMAKE_BUILD_TYPE=Release -DENABLE_NATIVE_ARCH=OFF
+
+      - name: Build web
+        run: cmake --build build-web -j
+
+      - name: Prepare Pages artifact
+        run: |
+          mkdir -p _site
+          cp build-web/EMMA.html _site/index.html
+          cp build-web/EMMA.js _site/
+          cp build-web/EMMA.wasm _site/
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
