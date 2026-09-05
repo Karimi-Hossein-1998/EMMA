@@ -102,11 +102,7 @@ inline MyFunc kuramoto_sparse_wrapper(const KuramotoSparseParams& params)
 {
     return [params](double time, const dVec& theta, dVec& dthetadt) -> void
     {
-#ifdef __EMSCRIPTEN__
         return kuramoto_sparse(time, theta, dthetadt, params.omega, params.K, params.sparse_adj, params.alpha);
-#else
-        return kuramoto_sparse_parallel(time, theta, dthetadt, params.omega, params.K, params.sparse_adj, params.alpha);
-#endif
     };
 }
 
