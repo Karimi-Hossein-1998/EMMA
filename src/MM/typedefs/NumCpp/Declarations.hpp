@@ -9,7 +9,9 @@
 #include <string>
 #include <concepts>
 #include <execution>
+#ifndef __EMSCRIPTEN__
 #include <stdfloat>
+#endif
 #include <cstdint>
 #include <type_traits>
 #include <stdexcept>
