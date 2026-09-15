@@ -24,12 +24,14 @@ enum class InitType
     Splay,
     SplayPerturbed
 };
+
+template <FPNumber Num>
 struct InitializerParams
 {
     InitState initState  = InitState::Uniform;
     InitType  moduleType = InitType::Uniform;
-    double    param1     = 0.0;
-    double    param2     = 1.0;
+    Num       param1     = static_cast<Num>(0.0);
+    Num       param2     = static_cast<Num>(1.0);
     size_t    N          = 50;
     size_t    numModules = 1;
     size_t    moduleSize = 50;
@@ -37,10 +39,11 @@ struct InitializerParams
     bool      identical  = false;
 };
 // Uniform distribution in [min, max)
-inline dVec random_uniform(
+template <FPNumber Num>
+inline Vec<Num> random_uniform(
     size_t   N,
-    double   min_val,
-    double   max_val,
+    Num      min_val,
+    Num      max_val,
     unsigned seed
 )
 {
@@ -49,123 +52,130 @@ inline dVec random_uniform(
     if (min_val > max_val) std::swap(min_val,max_val);
     // Original logic
     std::mt19937 rng(seed);
-    std::uniform_real_distribution<double> dist(min_val, max_val);
-    dVec  phases(N);
+    std::uniform_real_distribution<Num> dist(min_val, max_val);
+    Vec<Num>  phases(N);
     for (auto& x : phases)
         x = dist(rng);
     return phases;
 }
 
 // Normal (Gaussian) distribution
-inline dVec random_normal(
+template <FPNumber Num>
+inline Vec<Num> random_normal(
     size_t   N,
-    double   mean,
-    double   stddev,
+    Num      mean,
+    Num      stddev,
     unsigned seed
 )
 {
     // Error Handling
     if (N == 0) return {};
-    if (stddev <= 0.0) return dVec(N,mean);;
+    if (stddev <= 0.0) return Vec<Num>(N,mean);;
     // Original logic
     std::mt19937 rng(seed);
-    std::normal_distribution<double> dist(mean, stddev);
-    dVec  phases(N);
+    std::normal_distribution<Num> dist(mean, stddev);
+    Vec<Num>  phases(N);
     for (auto& x : phases)
         x = dist(rng);
     return phases;
 }
 
 // Cauchy (Lorentzian) distribution
-inline dVec random_cauchy(
+template <FPNumber Num>
+inline Vec<Num> random_cauchy(
     size_t   N,
-    double   location,
-    double   scale,
+    Num      location,
+    Num      scale,
     unsigned seed
 )
 {
     // Error Handling
     if (N == 0) return {};
-    if (scale <= 0.0) return dVec(N,location);
+    if (scale <= 0.0) return Vec<Num>(N,location);
     // Original logic
     std::mt19937 rng(seed);
-    std::cauchy_distribution<double> dist(location, scale);
-    dVec  phases(N);
+    std::cauchy_distribution<Num> dist(location, scale);
+    Vec<Num>  phases(N);
     for (auto& x : phases)
         x = dist(rng);
     return phases;
 }
 
 // Exponential distribution
-inline dVec random_exponential(
+template <FPNumber Num>
+inline Vec<Num> random_exponential(
     size_t   N,
-    double   lambda, // rate parameter
+    Num      lambda, // rate parameter
     unsigned seed
 )
 {
     // Error Handling
     if (N == 0) return {};
-    if (lambda <= 0.0) return dVec(N,0.0);
+    if (lambda <= 0.0) return Vec<Num>(N,0.0);
     // Original logic
     std::mt19937 rng(seed);
-    std::exponential_distribution<double> dist(lambda);
-    dVec  phases(N);
+    std::exponential_distribution<Num> dist(lambda);
+    Vec<Num>  phases(N);
     for (auto& x : phases)
         x = dist(rng);
     return phases;
 }
 
 // Uniform distribution on the unit circle [-pi, pi)
-inline dVec random_circle(
+template <FPNumber Num>
+inline Vec<Num> random_circle(
     size_t   N,
     unsigned seed
 )
 {
     // Error Handling
     if (N == 0) return {};
-    return random_uniform(N, -PI, PI, seed);
+    return random_uniform(N, -static_cast<double>(PI), static_cast<double>(PI), seed);
 }
 
 // Splay phases: equidistant around the circle [0, 2*pi)
-inline dVec splay(size_t N)
+template <FPNumber Num>
+inline Vec<Num> splay(size_t N)
 {
     // Error Handling
     if (N == 0) return {};
-    if (N == 1) return {0.0};
+    if (N == 1) return {Num{}};
 
-    dVec   phases(N);
-    double delta = 2.0 * PI / static_cast<double>(N);
+    Vec<Num> phases(N);
+    Num delta = static_cast<Num>(2.0) * PI / static_cast<Num>(N);
     for (size_t i = 0; i < N; ++i)
         phases[i] = i * delta;
     return phases;
 }
 
 // Splay phases with random perturbation in [-amplitude, amplitude]
-inline dVec splay_perturbed(
+template <FPNumber Num>
+inline Vec<Num> splay_perturbed(
     size_t   N,
-    double   amplitude,
+    Num      amplitude,
     unsigned seed
 )
 {
     // Error Handling
     if (N==0) return {};
-    if (std::abs(amplitude) <= 5e-15) return splay(N);
 
-    auto phases = splay(N);
+    auto phases = splay<Num>(N);
+    if (std::abs(amplitude) <= std::numeric_limits<Num>::epsilon()) return phases;
     std::mt19937 rng(seed);
-    std::uniform_real_distribution<double> dist(-amplitude, amplitude);
+    std::uniform_real_distribution<Num> dist(-amplitude, amplitude);
     for (auto& x : phases)
         x += dist(rng);
     return phases;
 }
 
 // Generate phases/frequencies for one module based on a given condition (uniform, normal, etc)
-inline dVec module_by_condition(
-    size_t             module_size,
-    InitType           initType,
-    double             a,
-    double             b,
-    unsigned           seed
+template <FPNumber Num>
+inline Vec<Num> module_by_condition(
+    size_t   module_size,
+    InitType initType,
+    Num      a,
+    Num      b,
+    unsigned seed
 )
 {
     // Error Handling
@@ -176,20 +186,21 @@ inline dVec module_by_condition(
         case InitType::Normal:         return random_normal(module_size,a,b,seed);break;
         case InitType::Cauchy:         return random_cauchy(module_size,a,b,seed);break;
         case InitType::Exponential:    return random_exponential(module_size,a,seed);break;
-        case InitType::Circle:         return random_circle(module_size,seed);break;
-        case InitType::Splay:          return splay(module_size);break;
+        case InitType::Circle:         return random_circle<Num>(module_size,seed);break;
+        case InitType::Splay:          return splay<Num>(module_size);break;
         case InitType::SplayPerturbed: return splay_perturbed(module_size,a,seed);break;
         default:                       return random_uniform(module_size, a, b, seed);break;
     }
 }
 
 // Generate phases/frequencies for one module and copy to all modules (identical modules)
-inline dVec identical_modules(
+template <FPNumber Num>
+inline Vec<Num> identical_modules(
     size_t   N_per_module,
     size_t   num_modules,
     InitType initType,
-    double   a,
-    double   b,
+    Num      a,
+    Num      b,
     unsigned seed
 )
 {
@@ -197,20 +208,21 @@ inline dVec identical_modules(
     if (N_per_module == 0) return {};
     if (num_modules == 0) return {};
 
-    dVec base = module_by_condition(N_per_module, initType, a, b, seed);
-    dVec result(N_per_module * num_modules);
+    Vec<Num> base = module_by_condition(N_per_module, initType, a, b, seed);
+    Vec<Num> result(N_per_module * num_modules);
     for (size_t m = 0; m < num_modules; ++m)
         for (size_t i = 0; i < N_per_module; ++i)
             result[m * N_per_module + i] = base[i];
     return result;
 }
 
-inline dVec modules(
+template <FPNumber Num>
+inline Vec<Num> modules(
     size_t   N_per_module,
     size_t   num_modules,
     InitType initType,
-    double   a,
-    double   b,
+    Num      a,
+    Num      b,
     unsigned seed,
     bool     identical
 )
@@ -221,8 +233,8 @@ inline dVec modules(
     {
     	return identical_modules(N_per_module, num_modules, initType, a, b, seed);
     }
-    dVec results(N_per_module*num_modules);
-    dVec subResults(N_per_module);
+    Vec<Num> results(N_per_module*num_modules);
+    Vec<Num> subResults(N_per_module);
     for (size_t mOdule=0; mOdule<num_modules; ++mOdule)
     {
         subResults = module_by_condition(N_per_module,initType,a,b,seed+mOdule);
@@ -234,7 +246,8 @@ inline dVec modules(
     return results;
 }
 
-inline dVec initialize_vector(const InitializerParams& initParams)
+template <FPNumber Num>
+inline Vec<Num> initialize_vector(const InitializerParams<Num>& initParams)
 {
     switch(initParams.initState)
     {
@@ -242,8 +255,8 @@ inline dVec initialize_vector(const InitializerParams& initParams)
         case InitState::Normal:         return random_normal(initParams.N,initParams.param1,initParams.param2,initParams.seed);break;
         case InitState::Cauchy:         return random_cauchy(initParams.N,initParams.param1,initParams.param2,initParams.seed);break;
         case InitState::Exponential:    return random_exponential(initParams.N,initParams.param1,initParams.seed);break;
-        case InitState::Circle:         return random_circle(initParams.N,initParams.seed);break;
-        case InitState::Splay:          return splay(initParams.N);break;
+        case InitState::Circle:         return random_circle<Num>(initParams.N,initParams.seed);break;
+        case InitState::Splay:          return splay<Num>(initParams.N);break;
         case InitState::SplayPerturbed: return splay_perturbed(initParams.N,initParams.param1,initParams.seed);break;
         case InitState::Modules:        return modules(initParams.moduleSize,initParams.numModules,initParams.moduleType,
             									initParams.param1,initParams.param2,initParams.seed,initParams.identical);break;

@@ -2,6 +2,8 @@
 
 This project aims to create a **_G_**_raphical_ **_U_**_ser_ **_I_**_nterface_ for the project [Mathematical Modelling Toolkit](https://github.com/Karimi-Hossein-1998/math-mod-tk.git).
 
+## Features
+
 + Added Fonts: *Inter*, *BonaNova Regular*, *Brawler Regular*, *ClearSans Regular*.
 + Added *Style Editor* (from *ImGui*).
 + Added Model Picker. (*General Kuramoto Variation*,*Kuramoto Variation (using Sparse adjacency)*, *Special Kuramoto Variant (Without adjacency)*).
@@ -9,11 +11,18 @@ This project aims to create a **_G_**_raphical_ **_U_**_ser_ **_I_**_nterface_ f
 + Added Network Structure Picker. (For *Kuramoto* models).
 + Added Solver Model Picker (Kinda Complete!). RK1 (Euler), RK2 (midpoint), RK3, RK4 (standard), RK4 (3/8), RK4 (Gill), RK4 (Ralston).
 + Added Live Plotting (Kinda Complete!).
++ Added Solver Picker.
++ Added Plotting.
+- Added *Contiguous* Matrix container from [NumCpp](https://github.com/Karimi-Hossein-1998/NumCpp).
+- Added *Multistep* solvers. *Adams-Bashforth* **predictor** and *Adams-Bashforth-Moulton* **predictor-corrector** methods are now available.
+- Added **SIMD** directives.
+- Added **Chronometer** for simulation runs.
 
 ## TODO
 
-+ [x] Add Solver Picker.
-+ [x]  Add Plotting.
 + [ ] Add Saving to Files.
 + [ ] Add Image and GIF Save Options.
 + [ ] Add running Simulations in Loops, Forward-Backward Loops, and Loop inside Loops.
+
+
+

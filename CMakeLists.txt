@@ -3,6 +3,7 @@ project(EMMA LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+find_package(OpenMP REQUIRED)
 if(POLICY CMP0169)
 	cmake_policy(SET CMP0169 OLD)
 endif()
@@ -59,6 +60,9 @@ add_executable(EMMA
 target_compile_options(EMMA PRIVATE
 	-O3
 	-funroll-loops
+	-ftree-vectorize
+	-fopenmp-simd
+	-ffast-math
 )
 
 if(ENABLE_NATIVE_ARCH)

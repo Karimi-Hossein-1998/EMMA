@@ -3,15 +3,15 @@
 
 namespace MathEngine
 { // MathEngine namespace
-// General Kuramoto model with phase-lag and flexible dMatrix
+// General Kuramoto model with phase-lag and flexible Matrix<double>
 inline void kuramoto_general(
-    double         time,
-    const dVec&    theta,
-    dVec&          dthetadt,
-    const dVec&    omega,
-    double         K,
-    const dMatrix& adj,
-    double         alpha
+    double                time,
+    const Vec<double>&    theta,
+    Vec<double>&          dthetadt,
+    const Vec<double>&    omega,
+    double                K,
+    const Matrix<double>& adj,
+    double                alpha
 )
 {
     const size_t N = theta.size(); // N is derived from theta, so N > 0 here.
@@ -23,22 +23,23 @@ inline void kuramoto_general(
         double sum = 0.0;
         for ( size_t j = 0; j < N; ++j )
         {
-            sum += adj[i][j] * std::sin( theta[j] - theta[i] - alpha );
+            sum += adj[i,j] * std::sin( theta[j] - theta[i] - alpha );
         }
         dthetadt[i] = omega[i] + k_norm * sum;
     }
     // return dthetadt;
 }
 
-// // General Kuramoto model with phase-lag and flexible dMatrix (parallel)
+// // General Kuramoto model with phase-lag and flexible Matrix<double> (parallel)
+// template <FPdoubleber double>
 // inline void kuramoto_general_parallel(
-//     double              time,
-//     const dVec&         theta,
-//     dVec&               dthetadt,
-//     const dVec&         omega,
-//     double              K,
-//     const dMatrix&       adj,
-//     double              alpha
+//     double                time,
+//     const Vec<double>&    theta,
+//     Vec<double>&          dthetadt,
+//     const Vec<double>&    omega,
+//     double                K,
+//     const Matrix<double>& adj,
+//     double                alpha
 // )
 // {
 //     const size_t N = theta.size(); // N is derived from theta, so N > 0 here.
@@ -88,31 +89,24 @@ inline void kuramoto_general(
 struct KuramotoParams
 {
     // Model specific parameters in Kuramoto model (time and phases/theta are dynamics bounds)
-    double K;     // Coupling strength
-    int    N;     // Number of oscillators
-    dVec   omega; // Natural frequencies
-    dMatrix adj;   
-    double alpha;
-
-    KuramotoParams(int num_oscillators=50, double phae_lag = 0.0)
-        : N(num_oscillators),
-          omega(dVec(num_oscillators, 0.0)),
-          adj(dMatrix(num_oscillators, dVec(num_oscillators, 0.0))),
-          alpha(phae_lag)
-    {}
+    Matrix<double> adj;
+    Vec<double>    omega; // Natural frequencies
+    double         alpha;
+    double         K;     // Coupling strength
+    int            N;     // doubleber of oscillators
 };
 
 inline MyFunc kuramoto_general_wrapper(const KuramotoParams& params)
 {
-    return [params](double t, const dVec& theta, dVec& dthetadt) -> void
+    return [params](double t, const Vec<double>& theta, Vec<double>& dthetadt) -> void
     {
         return kuramoto_general(t, theta, dthetadt, params.omega, params.K, params.adj, params.alpha);
     };
 }
-
-// inline MyFunc kuramoto_general_parallel_wrapper(const KuramotoParams& params)
+// template <FPdoubleber double>
+// inline MyFunc<double> auto kuramoto_general_parallel_wrapper(const KuramotoParams<double>& params)
 // {
-//     return [params](double t, const dVec& theta, dVec& dthetadt) -> void
+//     return [params](double t, const Vec<double>& theta, Vec<double>& dthetadt) -> void
 //     {
 //         return kuramoto_general_parallel(t, theta, dthetadt, params.omega, params.K, params.adj, params.alpha);
 //     };

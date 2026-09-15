@@ -1,4 +1,5 @@
 #pragma once
+#include "MM/typedefs/header.hpp"
 #include "MM/models/kuramoto/general.hpp"
 #include "MM/models/kuramoto/sparse.hpp"
 #include "MM/models/kuramoto/special.hpp"
@@ -7,13 +8,14 @@
 #include "MM/solvers/ODE/rk/explicit/rk3-solver.hpp"
 #include "MM/solvers/ODE/rk/explicit/rk4-solver.hpp"
 #include "MM/solvers/ODE/rk/explicit/rk4-variants.hpp"
-#include "MM/typedefs/header.hpp"
+#include "MM/solvers/ODE/multistep/ab-solver.hpp"
+#include "MM/solvers/ODE/multistep/abm-solver.hpp"
 #include "MM/initializers/initials.hpp"
 #include "MM/network/topology.hpp"
 #include "MM/models/kuramoto/general.hpp"
 #include "MM/models/kuramoto/sparse.hpp"
 #include "MM/models/kuramoto/special.hpp"
-#include "imgui_internal.h"
+// #include "imgui_internal.h"
 #include "raylib.h"
 #include <atomic>
 #ifdef PI
@@ -29,34 +31,50 @@
 #include <mutex>
 #include <thread>
 #include <atomic>
-using SolverFunc = std::function<MathEngine::SolverResults(const MathEngine::SolverParameters&)>;
-inline SolverFunc rk1_wrapper()
+#include <chrono>
+
+static constexpr const uint8_t MultiStepOrderMin{1};
+static constexpr const uint8_t MultiStepOrderMax{10};
+static constexpr const uint8_t MultiStepIterationsMin{1};
+static constexpr const uint8_t MultiStepIterationsMax{10};
+
+
+
+inline MathEngine::SolverFunc rk1_wrapper()
 {
-    return [](const MathEngine::SolverParameters& Params) {return MathEngine::rk1_solver_callback(Params);};
+    return [](const MathEngine::ODESolverParameters& Params) {return MathEngine::rk1_solver_callback(Params);};
 }
-inline SolverFunc rk2_wrapper()
+inline MathEngine::SolverFunc rk2_wrapper()
 {
-    return [](const MathEngine::SolverParameters& Params) {return MathEngine::rk2_solver_callback(Params);};
+    return [](const MathEngine::ODESolverParameters& Params) {return MathEngine::rk2_solver_callback(Params);};
 }
-inline SolverFunc rk3_wrapper()
+inline MathEngine::SolverFunc rk3_wrapper()
 {
-    return [](const MathEngine::SolverParameters& Params) {return MathEngine::rk3_solver_callback(Params);};
+    return [](const MathEngine::ODESolverParameters& Params) {return MathEngine::rk3_solver_callback(Params);};
 }
-inline SolverFunc rk4_wrapper()
+inline MathEngine::SolverFunc rk4_wrapper()
 {
-    return [](const MathEngine::SolverParameters& Params) {return MathEngine::rk4_solver_callback(Params);};
+    return [](const MathEngine::ODESolverParameters& Params) {return MathEngine::rk4_solver_callback(Params);};
 }
-inline SolverFunc rk4_38_wrapper()
+inline MathEngine::SolverFunc rk4_38_wrapper()
 {
-    return [](const MathEngine::SolverParameters& Params) {return MathEngine::rk4_38_solver_callback(Params);};
+    return [](const MathEngine::ODESolverParameters& Params) {return MathEngine::rk4_38_solver_callback(Params);};
 }
-inline SolverFunc rk4_ralston_wrapper()
+inline MathEngine::SolverFunc rk4_ralston_wrapper()
 {
-    return [](const MathEngine::SolverParameters& Params) {return MathEngine::rk4_ralston_solver_callback(Params);};
+    return [](const MathEngine::ODESolverParameters& Params) {return MathEngine::rk4_ralston_solver_callback(Params);};
 }
-inline SolverFunc rk4_gill_wrapper()
+inline MathEngine::SolverFunc rk4_gill_wrapper()
 {
-    return [](const MathEngine::SolverParameters& Params) {return MathEngine::rk4_gill_solver_callback(Params);};
+    return [](const MathEngine::ODESolverParameters& Params) {return MathEngine::rk4_gill_solver_callback(Params);};
+}
+inline MathEngine::SolverFunc adams_bashforth_wrapper()
+{
+    return [](const MathEngine::ODESolverParameters& Params) {return MathEngine::adams_bashforth_solver_callback(Params);};
+}
+inline MathEngine::SolverFunc adams_bashforth_moulton_wrapper()
+{
+    return [](const MathEngine::ODESolverParameters& Params) {return MathEngine::adams_bashforth_moulton_solver_callback(Params);};
 }
 
 enum class ModelType
@@ -77,23 +95,26 @@ enum class SolverMethod
     RK4,
     RK4_38,
     RK4_Gill,
-    RK4_Ralston
+    RK4_Ralston,
+    AB,
+    ABM
 };
+
 struct GeneralModelParams
 {
-    ModelType modelType = ModelType::Kuramoto;
-    KuramotoType kuramotoType = KuramotoType::KuramotoGeneral;
-	size_t N = 50;
-    size_t nModules = 1;
-    size_t sModules = 50;
+    MathEngine::dVec iFrqnc;
+    MathEngine::dVec iPhase;
     double K = 1.0;
     double Q = 0.5;
     double alpha = 0.0;
-    MathEngine::dVec iFrqnc;
-    MathEngine::dVec iPhase;
-    GeneralModelParams(size_t n=50) : N(n) {};
+	size_t N = 50;
+    size_t nModules = 1;
+    size_t sModules = 50;
+    ModelType modelType = ModelType::Kuramoto;
+    KuramotoType kuramotoType = KuramotoType::KuramotoGeneral;
     int modelSelectedIndex = 0;
     int kuramotoModelSelectedIndex = 0;
+    GeneralModelParams(size_t n=50) : N(n) {};
 };
 struct DistParams
 {
@@ -116,44 +137,45 @@ struct NetParams
     double weightMin = 0.0, weightMax = 1.0, weight = 0.5, weightIn = 0.0, weightOut = 1.0;
     double prob = 0.5, probIn = 0.5, probOut = 0.5;
     double decayRatio = 0.1;
-    int meanDegree = 2;
-    int seed = 41;
     size_t sModulesBase = 10, nModulesBase = 2, hLevels = 2;
     size_t sModulesM = 10, nModulesM = 2;
     MathEngine::NetworkTopology adjState = MathEngine::NetworkTopology::ErdosRenyi;
-    bool showAdjMatrix = false;
     int adjSelectedIndex = 3;
+    int meanDegree = 2;
+    int seed = 41;
+    bool showAdjMatrix = false;
 };
 struct SolverParams
 {
+    MathEngine::ODESolverParameters solverParams;
+    MathEngine::SolverResults solverResults;
+    MathEngine::SolverFunc solverFunc=nullptr;
     SolverMethod solverMethod = SolverMethod::RK4;
     int nDs = 1;
     int solverMethodSelectedIndex = 3;
-    SolverFunc solverFunc=nullptr;
-    MathEngine::SolverParameters solverParams;
-    MathEngine::SolverResults solverResults;
 };
 struct PlotParams
 {
+    MathEngine::Matrix<double> plotYModules;
     MathEngine::OneStepSolverResult liveSolverRes;
-	std::mutex plotMutex;
-    int Stride = 50;
-    int trailCount = 5000;
-    bool showPlot = false;
-    bool showPlotSecond = false;
-    bool showPlotThird = false;
-    size_t offset = 0;
+    MathEngine::Vec<double> liveTimePoints = {};
+    MathEngine::Vec<double> liveState      = {};
+    MathEngine::Vec<double> plotX          = {};
+    MathEngine::Vec<double> plotY          = {};
+    MathEngine::Vec<double> plotXTrail     = {};
+    MathEngine::Vec<double> plotYTrail     = {};
     MathEngine::Vec<ImVec4> plotColors;
     MathEngine::Vec<ImVec4> plotSecondColors;
     MathEngine::Vec<ImVec4> plotThirdColors;
-    MathEngine::dVec liveTimePoints = {};
-    MathEngine::dVec liveState = {};
-    MathEngine::dVec plotX = {};
-    MathEngine::dVec plotY = {};
-    MathEngine::dVec plotXTrail = {};
-    MathEngine::dVec plotYTrail = {};
-    MathEngine::dMatrix plotYModules;
+	std::mutex              plotMutex;
+    size_t offset                         = 0;
+    int    Stride                         = 50;
+    int    trailCount                     = 5000;
+    bool   showPlot                       = false;
+    bool   showPlotSecond                 = false;
+    bool   showPlotThird                  = false;
 };
+
 ////////////////////////////////////
 /////                          /////
 /////     STATE OF THE APP     /////
@@ -162,32 +184,36 @@ struct PlotParams
 class AppState
 {
 	public:
-        float colorR=0.2,colorG=0.8,colorB=0.8,colorA=1.0;
-        std::atomic<float> simProgress{0.0f};
-        std::atomic<double> timeInv{0.0f};
-        std::atomic<bool> isSimRunning{false};
-        float padding = 10.0f;
-        Color BgColor = Color{15,15,15,255};
-        size_t initW = 800;
-        size_t initH = 600;
-        float cellWidthBase = 1.0;
-        float cellHeightBase = 1.0;
-        std::string appTitle;
-        bool showStyleEditor=false;
-        bool showDelays=false;
-        bool showPlot=false;
-        bool runSimulation=false;
-        bool DarkTheme=true;
         GeneralModelParams modelParams = GeneralModelParams(50);
         DistParams phaseParams;
         DistParams frqncParams;
         NetParams adjParams;
         SolverParams solverParams;
         PlotParams plotParams;
-
         MathEngine::dMatrix adj; // Adjacency (for any system that might need it)
         MathEngine::SparsedMatrix sparseAdj = MathEngine::SparsedMatrix(modelParams.N); // Sparse adjacency
-        MathEngine::dVec delayTimes = {0.0};
+        // MathEngine::dVec delayTimes = {0.0};
+        Color BgColor = Color{15,15,15,255};
+        std::string appTitle;
+        std::atomic<double> timeInv{0.0f};
+        std::chrono::steady_clock::time_point processStartTime{};
+        std::chrono::steady_clock::time_point processStopTime{};
+        long milliSec{}, totalSec{}, sec{}, min{}, hour{}, processDuration{};
+        std::atomic<float> simProgress{0.0f};
+        float colorR=0.2,colorG=0.8,colorB=0.8,colorA=1.0;
+        float padding = 10.0f;
+        float cellWidthBase = 1.0;
+        float cellHeightBase = 1.0;
+        size_t initW = 800;
+        size_t initH = 600;
+        std::atomic<bool> isSimRunning{false};
+        bool showStyleEditor=false;
+        bool showDelays=false;
+        bool showPlot=false;
+        bool hasSimRan=false;
+        bool DarkTheme=true;
+        bool showAbout=false;
+
         inline void RenderUI()
         {
             drawTopMenuBar();
@@ -221,7 +247,7 @@ class AppState
                     }
                     if (ImGui::BeginTabItem("Solver Parameters"))
                     {
-                        DrawSolverParametersPanelContent();
+                        DrawODESolverParametersPanelContent();
                         ImGui::EndTabItem();
                     }
                     if (ImGui::BeginTabItem("Plot Parameters"))
@@ -229,13 +255,15 @@ class AppState
                         DrawPlotPanelContent();
                         ImGui::EndTabItem();
                     }
-                    if (ImGui::BeginTabItem("Run Simulation"))
+                    if (ImGui::BeginTabItem("Run"))
                     {
                         DrawProgressBar();
                         ImGui::Spacing();
+                        RenderChrono();
+                        ImGui::Spacing();
                         bool running = isSimRunning.load();
                         if (running) ImGui::BeginDisabled();
-                        if (ImGui::Button(running?"Simulating...":"Begin Simulation",ImVec2(-1,0))) StartSimulation();
+                        if (ImGui::Button(running?"Running...":"Begin Simulation",ImVec2(-1,0))) StartSimulation();
                         if (running) ImGui::EndDisabled();
                         ImGui::EndTabItem();
                     }
@@ -244,6 +272,7 @@ class AppState
             }
             ImGui::End();
             RenderModals();
+            DrawAboutPage(showAbout);
             DrawPlotWindow();
         }
         inline void drawTopMenuBar()
@@ -255,6 +284,17 @@ class AppState
                     DrawFontMenu();
                     ImGui::Separator();
                     if (ImGui::MenuItem("Show ImGui Style Editor",nullptr,&showStyleEditor)) {}
+                    ImGui::Spacing();
+                    ImGui::Separator();
+                    ImGui::Spacing();
+                    ImGui::EndMenu();
+                }
+                if (ImGui::BeginMenu("Help"))
+                {
+                    if (ImGui::MenuItem("About"))
+                    {
+                        showAbout = true;
+                    }
                     ImGui::EndMenu();
                 }
                 ImGui::EndMainMenuBar();
@@ -272,17 +312,18 @@ class AppState
             "Random Exponential", "Random Circle", "Splay", "Splay Perturbed"};
         static constexpr const char* solverMethodNames[] = {"Euler (RK1)", "Midpoint (RK2)", "Runge-Kutta 3rd Order (RK3)",
             "Runge-Kutta 4th Order (Standard RK4)", "Runge-Kutta 4th Order (3/8 RK4 variant)", "Runge-Kutta 4th Order (Gill's RK4 variant)",
-            "Runge-Kutta 4th Order (Ralston's RK4 variant)"
+            "Runge-Kutta 4th Order (Ralston's RK4 variant)","Adams-Bashforth (Multistep Predictor)", "Adams-Bashforth-Moulton (Predictor-Corrector)"
         };
         inline void DrawModelPanelContent();
         inline void DrawTopologyPanelContent();
 		inline void DrawInitialsPanelContent();
-		inline void DrawSolverParametersPanelContent();
+		inline void DrawODESolverParametersPanelContent();
 		inline void RenderModals();
         inline void DrawPlotWindow();
         inline void StartSimulation();
         inline void DrawProgressBar();
         inline void DrawPlotPanelContent();
+        inline void RenderChrono();
 };
 
 inline void AppState::DrawModelPanelContent()
@@ -516,10 +557,10 @@ inline void AppState::DrawInitialsPanelContent()
                 modelParams.iPhase = MathEngine::random_exponential(modelParams.N, phaseParams.rate, pSeed);
                 break;
             case MathEngine::InitState::Circle:
-                modelParams.iPhase = MathEngine::random_circle(modelParams.N, pSeed);
+                modelParams.iPhase = MathEngine::random_circle<double>(modelParams.N, pSeed);
                 break;
             case MathEngine::InitState::Splay:
-                modelParams.iPhase = MathEngine::splay(modelParams.N);
+                modelParams.iPhase = MathEngine::splay<double>(modelParams.N);
                 break;
             case MathEngine::InitState::SplayPerturbed:
                 modelParams.iPhase = MathEngine::splay_perturbed(modelParams.N, phaseParams.perturbation, pSeed);
@@ -590,10 +631,10 @@ inline void AppState::DrawInitialsPanelContent()
                 modelParams.iFrqnc = MathEngine::random_exponential(modelParams.N, frqncParams.rate, fSeed);
                 break;
             case MathEngine::InitState::Circle:
-                modelParams.iFrqnc = MathEngine::random_circle(modelParams.N, fSeed);
+                modelParams.iFrqnc = MathEngine::random_circle<double>(modelParams.N, fSeed);
                 break;
             case MathEngine::InitState::Splay:
-                modelParams.iFrqnc = MathEngine::splay(modelParams.N);
+                modelParams.iFrqnc = MathEngine::splay<double>(modelParams.N);
                 break;
             case MathEngine::InitState::SplayPerturbed:
                 modelParams.iFrqnc = MathEngine::splay_perturbed(modelParams.N, frqncParams.perturbation, fSeed);
@@ -649,9 +690,9 @@ inline void AppState::DrawInitialsPanelContent()
     }
 }
 
-inline void AppState::DrawSolverParametersPanelContent()
+inline void AppState::DrawODESolverParametersPanelContent()
 {
-	if (ImGui::Combo("Solver Method",&solverParams.solverMethodSelectedIndex,solverMethodNames,7))
+	if (ImGui::Combo("Solver Method",&solverParams.solverMethodSelectedIndex,solverMethodNames,9))
         solverParams.solverMethod=static_cast<SolverMethod>(solverParams.solverMethodSelectedIndex);
     switch(solverParams.solverMethod)
     {
@@ -676,6 +717,12 @@ inline void AppState::DrawSolverParametersPanelContent()
         case SolverMethod::RK4_Ralston:
             solverParams.solverFunc = rk4_ralston_wrapper();
             break;
+        case SolverMethod::AB:
+            solverParams.solverFunc = adams_bashforth_wrapper();
+            break;
+        case SolverMethod::ABM:
+            solverParams.solverFunc = adams_bashforth_moulton_wrapper();
+            break;
         default:
             solverParams.solverFunc = rk4_wrapper();
             break;
@@ -691,83 +738,86 @@ inline void AppState::DrawSolverParametersPanelContent()
         ImGui::InputDouble("Step Size (dt)", &solverParams.solverParams.dt, 0.000001, 0.01, "%.15g");
         ImGui::Separator();
         // Multi-step method controls (Adams-Bashforth / Adams-Moulton)
-        ImGui::SliderInt("Method Order", &solverParams.solverParams.order, 1, 10);
-        ImGui::SliderInt("ABM Iterations", &solverParams.solverParams.iterations, 1, 10);
-    }
-    if (ImGui::CollapsingHeader("Adaptive Step Control"))
-    {
-        ImGui::Checkbox("Estimate Error", &solverParams.solverParams.errorEstimate);
-        ImGui::SameLine();
-        ImGui::Checkbox("Enable Variable Step Size", &solverParams.solverParams.variableSteps);
-        if (solverParams.solverParams.errorEstimate && solverParams.solverParams.variableSteps)
+        if (solverParams.solverMethod==SolverMethod::AB || solverParams.solverMethod==SolverMethod::ABM)
         {
-            ImGui::Indent();
-            ImGui::TextDisabled("Tolerances & Bounds");
-            ImGui::InputDouble("Local Tolerance", &solverParams.solverParams.localTol, 0.0, 0.0, "%.1e");
-            ImGui::InputDouble("Absolute Tolerance", &solverParams.solverParams.absolute_tol, 0.0, 0.0, "%.1e");
-            ImGui::InputDouble("Min dt", &solverParams.solverParams.minDt, 0.0, 0.0, "%.15g");
-            ImGui::InputDouble("Max dt", &solverParams.solverParams.maxDt, 0.0, 0.0, "%.15g");
-            ImGui::Separator();
-            ImGui::TextDisabled("Step Adaptation Factors");
-            ImGui::InputDouble("Decrease Factor", &solverParams.solverParams.decreaseFactor, 0.05, 0.1, "%.15g");
-            ImGui::InputDouble("Increase Factor", &solverParams.solverParams.increaseFactor, 0.1, 0.5, "%.15g");
-            ImGui::InputDouble("Tol Error Ratio", &solverParams.solverParams.localTolErrorRatio, 0.01, 0.05, "%.15g");
-            // size_t cast to int for ImGui input
-            int maxTrial = static_cast<int>(solverParams.solverParams.maxTrial);
-            if (ImGui::InputInt("Max Trials", &maxTrial))
-                solverParams.solverParams.maxTrial = static_cast<size_t>(maxTrial>1?maxTrial:1);
-            ImGui::Unindent();
+            ImGui::SliderScalar("Method Order", ImGuiDataType_U8, &solverParams.solverParams.order, &MultiStepOrderMin, &MultiStepOrderMax, "%u");
+            if (solverParams.solverMethod==SolverMethod::ABM) ImGui::SliderScalar("ABM PE(CE) Iterations", ImGuiDataType_U8, &solverParams.solverParams.iterations, &MultiStepIterationsMin, &MultiStepIterationsMax, "%u");
         }
     }
-    if (ImGui::CollapsingHeader("Error Metrics & Flags"))
-    {
-        ImGui::Checkbox("Weighted Error Formula", &solverParams.solverParams.weightedError);
-        ImGui::Checkbox("Norm Error Formula", &solverParams.solverParams.normError);
-        ImGui::Checkbox("Record Attempt History", &solverParams.solverParams.attemptsHistory);
-    }
-    // double tau=0.0;
-    if (ImGui::CollapsingHeader("Delay Differential Equations (DDE)"))
-    {
-        ImGui::Checkbox("Is DDE System", &solverParams.solverParams.isDDE);
-        if (solverParams.solverParams.isDDE)
-        {
-            ImGui::Indent();
-            int maxDelayOrder_ = static_cast<int>(solverParams.solverParams.maxDelayOrder);
-            if (ImGui::InputInt("Max Delay Order", &maxDelayOrder_))
-            {
-                solverParams.solverParams.maxDelayOrder = static_cast<size_t>(maxDelayOrder_ > 1 ? maxDelayOrder_ : 1);
-            }
-            ImGui::InputDouble("Interpolation Tol", &solverParams.solverParams.interpolationTol, 1e-10, 1e-8, "%.1e");
-            ImGui::InputDouble("dt Scale (Fine Step)", &solverParams.solverParams.dtScale, 0.01, 0.05, "%.15g");
-            ImGui::SliderInt("Number of Delays",&solverParams.nDs,1,20);
-            ImGui::SameLine();
-            if (ImGui::Button("Set Delay Count"))
-            {
-                delayTimes.resize(solverParams.nDs);
-            }
-            if (ImGui::CollapsingHeader("Delays"))
-            {
-                // delayTimes = MathEngine::dVec(nDs,0.0);
-                for (size_t i=0; i<delayTimes.size(); ++i)
-                {
-                    std::string label = "Delay number "+std::to_string(i+1);
-                    ImGui::InputDouble(label.c_str(), &delayTimes[i],0.0001f,0.01f,"%.15g");
-                    // delayTimes[i]=tau;
-                }
-            }
-            if (ImGui::Button("Submit Delays"))
-            {
-                solverParams.solverParams.delayTimes=delayTimes;
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("View Delay Values"))
-            {
-                showDelays=true;
-            }
-            ImGui::Text("Configured Delays: %zu", solverParams.solverParams.delayTimes.size());
-            ImGui::Unindent();
-        }
-    }
+    // if (ImGui::CollapsingHeader("Adaptive Step Control"))
+    // {
+    //     ImGui::Checkbox("Estimate Error", &solverParams.solverParams.errorEstimate);
+    //     ImGui::SameLine();
+    //     ImGui::Checkbox("Enable Variable Step Size", &solverParams.solverParams.variableSteps);
+    //     if (solverParams.solverParams.errorEstimate && solverParams.solverParams.variableSteps)
+    //     {
+    //         ImGui::Indent();
+    //         ImGui::TextDisabled("Tolerances & Bounds");
+    //         ImGui::InputDouble("Local Tolerance", &solverParams.solverParams.localTol, 0.0, 0.0, "%.1e");
+    //         ImGui::InputDouble("Absolute Tolerance", &solverParams.solverParams.absolute_tol, 0.0, 0.0, "%.1e");
+    //         ImGui::InputDouble("Min dt", &solverParams.solverParams.minDt, 0.0, 0.0, "%.15g");
+    //         ImGui::InputDouble("Max dt", &solverParams.solverParams.maxDt, 0.0, 0.0, "%.15g");
+    //         ImGui::Separator();
+    //         ImGui::TextDisabled("Step Adaptation Factors");
+    //         ImGui::InputDouble("Decrease Factor", &solverParams.solverParams.decreaseFactor, 0.05, 0.1, "%.15g");
+    //         ImGui::InputDouble("Increase Factor", &solverParams.solverParams.increaseFactor, 0.1, 0.5, "%.15g");
+    //         ImGui::InputDouble("Tol Error Ratio", &solverParams.solverParams.localTolErrorRatio, 0.01, 0.05, "%.15g");
+    //         // size_t cast to int for ImGui input
+    //         int maxTrial = static_cast<int>(solverParams.solverParams.maxTrial);
+    //         if (ImGui::InputInt("Max Trials", &maxTrial))
+    //             solverParams.solverParams.maxTrial = static_cast<size_t>(maxTrial>1?maxTrial:1);
+    //         ImGui::Unindent();
+    //     }
+    // }
+    // if (ImGui::CollapsingHeader("Error Metrics & Flags"))
+    // {
+    //     ImGui::Checkbox("Weighted Error Formula", &solverParams.solverParams.weightedError);
+    //     ImGui::Checkbox("Norm Error Formula", &solverParams.solverParams.normError);
+    //     ImGui::Checkbox("Record Attempt History", &solverParams.solverParams.attemptsHistory);
+    // }
+    // // double tau=0.0;
+    // if (ImGui::CollapsingHeader("Delay Differential Equations (DDE)"))
+    // {
+    //     ImGui::Checkbox("Is DDE System", &solverParams.solverParams.isDDE);
+    //     if (solverParams.solverParams.isDDE)
+    //     {
+    //         ImGui::Indent();
+    //         int maxDelayOrder_ = static_cast<int>(solverParams.solverParams.maxDelayOrder);
+    //         if (ImGui::InputInt("Max Delay Order", &maxDelayOrder_))
+    //         {
+    //             solverParams.solverParams.maxDelayOrder = static_cast<size_t>(maxDelayOrder_ > 1 ? maxDelayOrder_ : 1);
+    //         }
+    //         ImGui::InputDouble("Interpolation Tol", &solverParams.solverParams.interpolationTol, 1e-10, 1e-8, "%.1e");
+    //         ImGui::InputDouble("dt Scale (Fine Step)", &solverParams.solverParams.dtScale, 0.01, 0.05, "%.15g");
+    //         ImGui::SliderInt("Number of Delays",&solverParams.nDs,1,20);
+    //         ImGui::SameLine();
+    //         if (ImGui::Button("Set Delay Count"))
+    //         {
+    //             delayTimes.resize(solverParams.nDs);
+    //         }
+    //         if (ImGui::CollapsingHeader("Delays"))
+    //         {
+    //             // delayTimes = MathEngine::dVec(nDs,0.0);
+    //             for (size_t i=0; i<delayTimes.size(); ++i)
+    //             {
+    //                 std::string label = "Delay number "+std::to_string(i+1);
+    //                 ImGui::InputDouble(label.c_str(), &delayTimes[i],0.0001f,0.01f,"%.15g");
+    //                 // delayTimes[i]=tau;
+    //             }
+    //         }
+    //         if (ImGui::Button("Submit Delays"))
+    //         {
+    //             solverParams.solverParams.delayTimes=delayTimes;
+    //         }
+    //         ImGui::SameLine();
+    //         if (ImGui::Button("View Delay Values"))
+    //         {
+    //             showDelays=true;
+    //         }
+    //         ImGui::Text("Configured Delays: %zu", solverParams.solverParams.delayTimes.size());
+    //         ImGui::Unindent();
+    //     }
+    // }
 }
 
 inline void AppState::RenderModals()
@@ -918,43 +968,44 @@ inline void AppState::RenderModals()
         ImGui::End();
     }
 
-    if (showDelays)
-    {
-        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(500, 480), ImGuiCond_Appearing);
-        if (ImGui::Begin("Submitted Delays",&showDelays))
-        {
-            ImGui::Text("Total Size: %zu elements", solverParams.solverParams.delayTimes.size());
-            ImGui::Separator();
-            ImGui::Spacing();
+    // if (showDelays)
+    // {
+    //     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    //     ImGui::SetNextWindowSize(ImVec2(500, 480), ImGuiCond_Appearing);
+    //     if (ImGui::Begin("Submitted Delays",&showDelays))
+    //     {
+    //         ImGui::Text("Total Size: %zu elements", solverParams.solverParams.delayTimes.size());
+    //         ImGui::Separator();
+    //         ImGui::Spacing();
 
-            // Scrollable child box for array elements
-            if (ImGui::BeginChild("ArrayList", ImVec2(0, 330), ImGuiChildFlags_Borders))
-            {
-                if (solverParams.solverParams.delayTimes.empty())
-                {
-                    ImGui::TextDisabled("Array is empty.");
-                }
-                else
-                {
-                    for (size_t i = 0; i < solverParams.solverParams.delayTimes.size(); ++i)
-                    {
-                        ImGui::Text("[%03zu]  %.6f", i+1, solverParams.solverParams.delayTimes[i]);
-                    }
-                }
-            }
-            ImGui::EndChild();
+    //         // Scrollable child box for array elements
+    //         if (ImGui::BeginChild("ArrayList", ImVec2(0, 330), ImGuiChildFlags_Borders))
+    //         {
+    //             if (solverParams.solverParams.delayTimes.empty())
+    //             {
+    //                 ImGui::TextDisabled("Array is empty.");
+    //             }
+    //             else
+    //             {
+    //                 for (size_t i = 0; i < solverParams.solverParams.delayTimes.size(); ++i)
+    //                 {
+    //                     ImGui::Text("[%03zu]  %.6f", i+1, solverParams.solverParams.delayTimes[i]);
+    //                 }
+    //             }
+    //         }
+    //         ImGui::EndChild();
 
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::Spacing();
-        }
-        ImGui::End();
-    }
+    //         ImGui::Spacing();
+    //         ImGui::Separator();
+    //         ImGui::Spacing();
+    //     }
+    //     ImGui::End();
+    // }
 }
 
 inline void AppState::StartSimulation()
 {
+    processStartTime = std::chrono::steady_clock::now();
     simProgress.store(0.0f);
     isSimRunning.store(true);
     timeInv.store(static_cast<float>(1.0/std::abs(solverParams.solverParams.t1-solverParams.solverParams.t0)));
@@ -971,9 +1022,7 @@ inline void AppState::StartSimulation()
         plotParams.plotY.reserve(plotExpectedSize);
         plotParams.plotXTrail.clear();
         plotParams.plotYTrail.clear();
-        plotParams.plotYModules.clear();
-        plotParams.plotYModules.clear();
-        plotParams.plotYModules = MathEngine::dMatrix(modelParams.nModules,MathEngine::dVec());
+        plotParams.plotYModules = MathEngine::dMatrix(MathEngine::Vec<double>(modelParams.nModules,{}));
         plotParams.offset = 0;
     }
     int stride = plotParams.Stride;
@@ -1006,10 +1055,7 @@ inline void AppState::StartSimulation()
             rho = sqrt(rSine*rSine+rCosine*rCosine);
             if (++stepCountCond%stride==0)
             {
-                for (size_t i=0; i<modelParams.nModules; ++i)
-                {
-                    plotParams.plotYModules[i].push_back(rhoM[i]);
-                }
+                plotParams.plotYModules.AppendCols(rhoM);
             }
         }
         else
@@ -1051,6 +1097,7 @@ inline void AppState::StartSimulation()
     simProgress.store(1.0);
     isSimRunning.store(false);
 #endif
+    hasSimRan = true;
 }
 
 inline void AppState::DrawProgressBar()
@@ -1288,3 +1335,21 @@ inline void AppState::DrawPlotPanelContent()
         }
     }
 }
+
+inline void AppState::RenderChrono()
+{
+    bool running = isSimRunning.load();
+    if (!hasSimRan) { ImGui::Text("00:00:00.000"); return; }
+    if (running)
+    {
+        processStopTime = std::chrono::steady_clock::now();
+        processDuration = std::chrono::duration_cast<std::chrono::milliseconds>(processStopTime-processStartTime).count();
+        milliSec = processDuration % 1000;
+        totalSec = processDuration / 1000;
+        sec      = totalSec % 60;
+        min      = (totalSec/60) % 60;
+        hour     = totalSec / 3600;
+    }
+    ImGui::Text("%02ld:%02ld:%02ld.%03ld",hour,min,sec,milliSec);
+}
+

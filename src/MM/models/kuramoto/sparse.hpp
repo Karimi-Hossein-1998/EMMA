@@ -6,9 +6,9 @@ namespace MathEngine
 // General Kuramoto model with phase-lag and sparse dMatrix
 inline void kuramoto_sparse(
     double               time,
-    const dVec&          theta,
-    dVec&                dthetadt,
-    const dVec&          omega,
+    const Vec<double>&   theta,
+    Vec<double>&         dthetadt,
+    const Vec<double>&   omega,
     double               K,
     const SparsedMatrix& sparse_adj,
     double               alpha
@@ -35,9 +35,9 @@ inline void kuramoto_sparse(
 // // General Kuramoto model with phase-lag and sparse dMatrix (parallel)
 // inline void kuramoto_sparse_parallel(
 //     double              time,
-//     const dVec&         theta,
-//     dVec&               dthetadt,
-//     const dVec&         omega,
+//     const Vec<double>&         theta,
+//     Vec<double>&               dthetadt,
+//     const Vec<double>&         omega,
 //     double              K,
 //     const SparsedMatrix& sparse_adj,
 //     double              alpha
@@ -84,23 +84,16 @@ inline void kuramoto_sparse(
 struct KuramotoSparseParams
 {
     // Model specific parameters in Kuramoto model (time and phases/theta are dynamics bounds)
-    double K;     // Coupling strength
-    int    N;     // Number of oscillators
-    dVec   omega; // Natural frequencies
-    SparsedMatrix sparse_adj;
-    double alpha;
-
-    KuramotoSparseParams(int num_oscillators=50, double phae_lag = 0.0)
-        : N(num_oscillators),
-          omega(dVec(num_oscillators, 0.0)),
-          sparse_adj(SparsedMatrix(num_oscillators)),
-          alpha(phae_lag)
-    {}
+    SparsedMatrix sparse_adj = SparsedMatrix();
+    Vec<double>   omega; // Natural frequencies
+    double        alpha;
+    double        K;     // Coupling strength
+    int           N;     // doubleber of oscillators
 };
 
 inline MyFunc kuramoto_sparse_wrapper(const KuramotoSparseParams& params)
 {
-    return [params](double time, const dVec& theta, dVec& dthetadt) -> void
+    return [params](double time, const Vec<double>& theta, Vec<double>& dthetadt) -> void
     {
         return kuramoto_sparse(time, theta, dthetadt, params.omega, params.K, params.sparse_adj, params.alpha);
     };
@@ -108,7 +101,7 @@ inline MyFunc kuramoto_sparse_wrapper(const KuramotoSparseParams& params)
 
 // inline MyFunc kuramoto_sparse_parallel_wrapper(const KuramotoSparseParams& params)
 // {
-//     return [params](double time, const dVec& theta, dVec& dthetadt) -> void
+//     return [params](double time, const Vec<double>& theta, Vec<double>& dthetadt) -> void
 //     {
 //         return kuramoto_sparse_parallel(time, theta, dthetadt, params.omega, params.K, params.sparse_adj, params.alpha);
 //     };

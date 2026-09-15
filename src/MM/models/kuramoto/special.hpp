@@ -5,14 +5,14 @@ namespace MathEngine
 { // namespace MathEngine
 // Special modular Kuramoto model (ordinary)
 inline void kuramoto_special_modular(
-    double       time,
-    const dVec&  theta,
-    dVec&        dthetadt,
-    const dVec&  omega,
-    double       intra_K,
-    double       inter_K,
-    double       alpha,
-    const size_t module_size
+    double             time,
+    const Vec<double>& theta,
+    Vec<double>&       dthetadt,
+    const Vec<double>& omega,
+    double             intra_K,
+    double             inter_K,
+    double             alpha,
+    const size_t       module_size
 )
 {
     const size_t N = theta.size(); // N is derived from theta, so N > 0 here.
@@ -46,9 +46,9 @@ inline void kuramoto_special_modular(
 // // Special modular Kuramoto model (parallel)
 // inline void kuramoto_special_modular_parallel(
 //     double              time,
-//     const dVec&         theta,
-//     dVec&               dthetadt,
-//     const dVec&         omega,
+//     const Vec<double>&         theta,
+//     Vec<double>&               dthetadt,
+//     const Vec<double>&         omega,
 //     double              intra_K,
 //     double              inter_K,
 //     double              alpha,
@@ -62,7 +62,7 @@ inline void kuramoto_special_modular(
 //     if ( num_threads == 0 ) num_threads = 1;
 //     double intra_k    = intra_K / static_cast<double>( N ); // Renamed k = K/N to k_norm for clarity
 //     double inter_k    = inter_K / static_cast<double>( N ); // Renamed k = K/N to k_norm for clarity
-//     dVec   dtheta_dt  = dVec( N, 0.0 );
+//     Vec<double>   dtheta_dt  = Vec<double>( N, 0.0 );
 //     size_t chunk_size = N / num_threads;
 
 //     for (size_t thread_index = 0; thread_index < num_threads; ++thread_index) 
@@ -106,25 +106,17 @@ inline void kuramoto_special_modular(
 struct KuramotoModularParams
 {
     // Model specific parameters in modular Kuramoto model (time and phases/theta are dynamics bounds)
-    double intra_K;     // Intra-module coupling strength
-    double inter_K;     // Inter-module coupling strength
-    int    N;           // Number of oscillators
-    dVec   omega;       // Natural frequencies
-    size_t module_size; // Size of each module
-    size_t num_modules;
-    double alpha;
-
-    KuramotoModularParams(size_t mod_size=50, size_t num_mods=2, double phae_lag = 0.0)
-        : N(mod_size * num_mods),
-          omega(dVec(mod_size * num_mods, 0.0)),
-          module_size(mod_size),
-          alpha(phae_lag)
-    {}
+    Vec<double> omega;       // Natural frequencies
+    double      intra_K;     // Intra-module coupling strength
+    double      inter_K;     // Inter-module coupling strength
+    double      alpha;
+    size_t      module_size; // Size of each module
+    size_t      num_modules;
+    int         N;           // doubleber of oscillators
 };
-
 inline MyFunc kuramoto_special_modular_wrapper(const KuramotoModularParams& params)
 {
-    return [params](double t, const dVec& theta, dVec& dthetadt) -> void
+    return [params](double t, const Vec<double>& theta, Vec<double>& dthetadt) -> void
     {
         return kuramoto_special_modular(t, theta, dthetadt, params.omega, params.intra_K, params.inter_K, params.alpha, params.module_size);
     };

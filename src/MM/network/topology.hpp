@@ -5,43 +5,43 @@
 namespace MathEngine
 { // namespace MathEngine
 // -----------------------------------------------------------------------------
-// Convert dense dMatrix to sparse dMatrix
+// Convert dense Matrix<double> to sparse Matrix<double>
 /*----------------------------------------------------------*/
 // Parameters:
 //   adj: Dense adjacency matrix (N x N)
 // Returns:
-//   SparsedMatrix representation of the input matrix
-inline SparsedMatrix dense_to_sparse(const dMatrix &adj)
+//   SparsedMatrix<double> representation of the input matrix
+inline SparsedMatrix dense_to_sparse(const Matrix<double>& adj)
 {
-    size_t N = adj.size();
+    size_t N = adj.Rows();
     SparsedMatrix sparse(N);
     for (size_t i = 0; i < N; ++i)
         for (size_t j = 0; j < N; ++j)
-            if (adj[i][j] != 0.0)
-                sparse.rows[i].emplace_back(j, adj[i][j]);
+            if (adj[i,j] != 0.0)
+                sparse.rows[i].emplace_back(j, adj[i,j]);
     return sparse;
 }
 
 // -----------------------------------------------------------------------------
-// Compute density (fraction of nonzero off-diagonal entries) for a dense dMatrix
+// Compute density (fraction of nonzero off-diagonal entries) for a dense Matrix<double>
 /*----------------------------------------------------------*/
 // Parameters:
 //   adj: Dense adjacency matrix (N x N)
 //   threshold: Minimum absolute value to consider an entry as nonzero (default 1e-12)
 // Returns:
 //   Density (fraction of nonzero off-diagonal entries)
-inline double density(const dMatrix &adj,double threshold = 1e-12)
+inline double density(const Matrix<double>& adj, double threshold = 1e-12)
 {
     size_t N = adj.size(), nonzero = 0, total = N * (N - 1);
     for (size_t i = 0; i < N; ++i)
         for (size_t j = 0; j < N; ++j)
-            if (i != j && std::abs(adj[i][j]) > threshold)
+            if (i != j && std::abs(adj[i,j]) > threshold)
                 ++nonzero;
-    return total ? static_cast<double>(nonzero) / total : 0.0;
+    return total ? static_cast<double>(nonzero*1.0) / static_cast<double>(total*1.0) : 0.0;
 }
 
 // -----------------------------------------------------------------------------
-// Convert dense dMatrix to sparse dMatrix if sparse enough, else return density
+// Convert dense Matrix<double> to sparse Matrix<double> if sparse enough, else return density
 /*----------------------------------------------------------*/
 // Parameters:
 //   adj: Dense adjacency matrix (N x N)
@@ -51,10 +51,10 @@ inline double density(const dMatrix &adj,double threshold = 1e-12)
 // Returns:
 //   Pair: (true if sparse_adj is filled, false if only density is set; density value)
 inline std::pair<bool, double> dense_to_sparse_conditional(
-    const dMatrix &adj,
-    SparsedMatrix &sparse_adj,
-    double density_threshold = 0.5,
-    double zero_threshold = 1e-12
+    const Matrix<double>& adj,
+    SparsedMatrix& sparse_adj,
+    double density_threshold = static_cast<double>(0.5),
+    double zero_threshold    = static_cast<double>(1e-12)
 )
 {
     size_t N = adj.size();
@@ -66,9 +66,9 @@ inline std::pair<bool, double> dense_to_sparse_conditional(
         {
             for (size_t j = 0; j < N; ++j)
             {
-                if (std::abs(adj[i][j]) > zero_threshold)
+                if (std::abs(adj[i,j]) > zero_threshold)
                 {
-                    sparse_adj.rows[i].emplace_back(j, adj[i][j]);
+                    sparse_adj.rows[i].emplace_back(j, adj[i,j]);
                 }
             }
         }
@@ -80,19 +80,19 @@ inline std::pair<bool, double> dense_to_sparse_conditional(
     }
 }
 
-// Random dMatrix: each edge weight is random in [min_weight, max_weight]
+// Random Matrix<double>: each edge weight is random in [min_weight, max_weight]
 /*----------------------------------------------------------*/
 // Parameters:
-//   N: Number of nodes (default 100)
+//   N: doubleber of nodes (default 100)
 //   min_weight: Minimum edge weight (default 0.0)
 //   max_weight: Maximum edge weight (default 1.0)
 //   seed: Random seed (default 42)
 // Returns:
 //   Randomly generated dense adjacency matrix (N x N)
-inline dMatrix random(
+inline Matrix<double> random(
     size_t   N          = 100,
-    double   min_weight = 0.0,
-    double   max_weight = 1.0,
+    double   min_weight = static_cast<double>(0.0),
+    double   max_weight = static_cast<double>(1.0),
     unsigned seed       = 42
 )
 {
@@ -103,27 +103,27 @@ inline dMatrix random(
     std::mt19937 rng(seed);
     // uniform_real_distribution handles min_weight == max_weight correctly.
     std::uniform_real_distribution<double> dist(min_weight, max_weight);
-    dMatrix adj(N, dVec(N));
+    Matrix<double> adj(N,N);
     for (size_t i = 0; i < N; ++i)
     {
         for (size_t j = 0; j < N; ++j)
         {
-            adj[i][j] = (i == j) ? 0.0 : dist(rng);
+            adj[i,j] = (i == j) ? 0.0 : dist(rng);
         }
     }
     return adj;
 }
 
-// Random Symmetric dMatrix: each edge weight is random in [min_weight, max_weight]
+// Random Symmetric Matrix<double>: each edge weight is random in [min_weight, max_weight]
 /*----------------------------------------------------------*/
 // Parameters:
-//   N: Number of nodes (default 100)
+//   N: doubleber of nodes (default 100)
 //   min_weight: Minimum edge weight (default 0.0)
 //   max_weight: Maximum edge weight (default 1.0)
 //   seed: Random seed (default 42)
 // Returns:
 //   Randomly generated dense adjacency matrix (N x N)
-inline dMatrix random_symmetric(
+inline Matrix<double> random_symmetric(
     size_t   N          = 100,
     double   min_weight = 0.0,
     double   max_weight = 1.0,
@@ -138,39 +138,39 @@ inline dMatrix random_symmetric(
     std::mt19937 rng(seed);
     // uniform_real_distribution handles min_weight == max_weight correctly.
     std::uniform_real_distribution<double> dist(min_weight, max_weight);
-    dMatrix adj(N, dVec(N));
+    Matrix<double> adj(N,N);
     for (size_t i = 1; i < N; ++i)
     {
         for (size_t j = 0; j < i; ++j)
         {
-            adj[i][j] = dist(rng);
-            adj[j][i] = adj[i][j];
+            adj[i,j] = dist(rng);
+            adj[j,i] = adj[i,j];
         }
     }
     return adj;
 }
 
-// Erdos-Renyi dMatrix: each edge exists with probability p, weight random in [min_weight, max_weight]
+// Erdos-Renyi Matrix<double>: each edge exists with probability p, weight random in [min_weight, max_weight]
 /*----------------------------------------------------------*/
 // Parameters:
-//   N: Number of nodes (default 100)
+//   N: doubleber of nodes (default 100)
 //   p: Connection probability (default 0.5)
 //   min_weight: Minimum edge weight (default 0.0)
 //   max_weight: Maximum edge weight (default 1.0)
 //   seed: Random seed (default 42)
 // Returns:
 //   Randomly generated Erdos-Renyi adjacency matrix (N x N)
-inline dMatrix erdos_renyi(
+inline Matrix<double> erdos_renyi(
     size_t   N          = 100,
-    double   p          = 0.5,
-    double   min_weight = 0.0,
-    double   max_weight = 1.0,
+    double   p          = static_cast<double>(0.5),
+    double   min_weight = static_cast<double>(0.0),
+    double   max_weight = static_cast<double>(1.0),
     unsigned seed       = 42
 )
 {
     // Error Handling
     if (N == 0) return {};
-    if (p < 0.0) return dMatrix(N,dVec(N,0.0));
+    if (p < 0.0) return Matrix<double>(N,N,0.0);
     if (p >= 1.0) return random(N,min_weight,max_weight,seed);
     if (min_weight > max_weight) std::swap(min_weight,max_weight);
 
@@ -178,47 +178,47 @@ inline dMatrix erdos_renyi(
     std::mt19937 rng(seed);
     std::uniform_real_distribution<double> weight_dist(min_weight, max_weight); // Renamed dist
     std::bernoulli_distribution edge_dist(p);
-    dMatrix adj(N, dVec(N, 0.0));
+    Matrix<double> adj(N,N);
     for (size_t i = 0; i < N; ++i)
     {
         for (size_t j = 0; j < N; ++j)
         {
             if (i != j && edge_dist(rng))
             {
-                adj[i][j] = weight_dist(rng);
+                adj[i,j] = weight_dist(rng);
             }
         }
     }
     return adj;
 }
 
-// Erdos-Renyi dMatrix (Uniform): exactly N*(N-1)*p edges with random weights
+// Erdos-Renyi Matrix<double> (Uniform): exactly N*(N-1)*p edges with random weights
 /*----------------------------------------------------------*/
 // Parameters:
-//   N: Number of nodes (default 100)
+//   N: doubleber of nodes (default 100)
 //   p: Connection probability (default 0.5)
 //   min_weight: Minimum edge weight (default 0.0)
 //   max_weight: Maximum edge weight (default 1.0)
 //   seed: Random seed (default 42)
 // Returns:
 //   Randomly generated Erdos-Renyi adjacency matrix (N x N) with exactly N*(N-1)*p edges
-inline dMatrix erdos_renyi_uniform(
+inline Matrix<double> erdos_renyi_uniform(
     size_t   N          = 100,
-    double   p          = 0.5,
-    double   min_weight = 0.0,
-    double   max_weight = 1.0,
+    double   p          = static_cast<double>(0.5),
+    double   min_weight = static_cast<double>(0.0),
+    double   max_weight = static_cast<double>(1.0),
     unsigned seed       = 42
 )
 {
     // Error Handling
     if (N == 0) return {};
-    if (p < 0.0) return dMatrix(N,dVec(N,0.0));
+    if (p < 0.0) return Matrix<double>(N,N,0.0);
     if (p >= 1.0) return random(N,min_weight,max_weight,seed);
     if (min_weight > max_weight) std::swap(min_weight,max_weight);
 
     std::mt19937 rng(seed);
     std::uniform_real_distribution<double> weight_dist(min_weight, max_weight);
-    dMatrix adj(N, dVec(N, 0.0));
+    Matrix<double> adj(N,N);
     // Calculate exact number of edges needed
     size_t total_edges = static_cast<size_t>(N * (N - 1) * p);
     // Create vector of all possible edges
@@ -236,33 +236,33 @@ inline dMatrix erdos_renyi_uniform(
     {
         size_t i  = possible_edges[e].first;
         size_t j  = possible_edges[e].second;
-        adj[i][j] = weight_dist(rng);
+        adj[i,j] = weight_dist(rng);
     }
 
     return adj;
 }
 
-// Symmetric Erdos-Renyi dMatrix: each edge exists with probability p, weight random in [min_weight, max_weight]
+// Symmetric Erdos-Renyi Matrix<double>: each edge exists with probability p, weight random in [min_weight, max_weight]
 /*----------------------------------------------------------*/
 // Parameters:
-//   N: Number of nodes (default 100)
+//   N: doubleber of nodes (default 100)
 //   p: Connection probability (default 0.5)
 //   min_weight: Minimum edge weight (default 0.0)
 //   max_weight: Maximum edge weight (default 1.0)
 //   seed: Random seed (default 42)
 // Returns:
 //   Randomly generated Erdos-Renyi (Symmetric) adjacency matrix (N x N)
-inline dMatrix erdos_renyi_symmetric(
+inline Matrix<double> erdos_renyi_symmetric(
     size_t   N          = 100,
-    double   p          = 0.5,
-    double   min_weight = 0.0,
-    double   max_weight = 1.0,
+    double   p          = static_cast<double>(0.5),
+    double   min_weight = static_cast<double>(0.0),
+    double   max_weight = static_cast<double>(1.0),
     unsigned seed       = 42
 )
 {
     // Error Handling
     if (N == 0) return {};
-    if (p < 0.0) return dMatrix(N,dVec(N,0.0));
+    if (p < 0.0) return Matrix<double>(N,N,0.0);
     if (p >= 1.0) return random_symmetric(N,min_weight,max_weight,seed);
     if (min_weight > max_weight) std::swap(min_weight,max_weight);
 
@@ -270,48 +270,48 @@ inline dMatrix erdos_renyi_symmetric(
     std::mt19937 rng(seed);
     std::uniform_real_distribution<double> weight_dist(min_weight, max_weight); // Renamed dist
     std::bernoulli_distribution edge_dist(p);
-    dMatrix adj(N, dVec(N, 0.0));
+    Matrix<double> adj(N,N);
     for (size_t i = 1; i < N; ++i)
     {
         for (size_t j = 0; j < i; ++j)
         {
             if (edge_dist(rng))
             {
-                adj[i][j] = weight_dist(rng);
-                adj[j][i] = adj[i][j];
+                adj[i,j] = weight_dist(rng);
+                adj[j,i] = adj[i,j];
             }
         }
     }
     return adj;
 }
 
-// Symmetric Erdos-Renyi dMatrix (Uniform): exactly N*(N-1)*p/2 edges with random weights
+// Symmetric Erdos-Renyi Matrix<double> (Uniform): exactly N*(N-1)*p/2 edges with random weights
 /*----------------------------------------------------------*/
 // Parameters:
-//   N: Number of nodes (default 100)
+//   N: doubleber of nodes (default 100)
 //   p: Connection probability (default 0.5)
 //   min_weight: Minimum edge weight (default 0.0)
 //   max_weight: Maximum edge weight (default 1.0)
 //   seed: Random seed (default 42)
 // Returns:
 //   Randomly generated Erdos-Renyi (Symmetric) adjacency matrix (N x N) with exactly N*(N-1)*p/2 edges
-inline dMatrix erdos_renyi_symmetric_uniform(
+inline Matrix<double> erdos_renyi_symmetric_uniform(
     size_t   N          = 100,
-    double   p          = 0.5,
-    double   min_weight = 0.0,
-    double   max_weight = 1.0,
+    double   p          = static_cast<double>(0.5),
+    double   min_weight = static_cast<double>(0.0),
+    double   max_weight = static_cast<double>(1.0),
     unsigned seed       = 42
 )
 {
     // Error Handling
     if (N == 0) return {};
-    if (p < 0.0) return dMatrix(N,dVec(N,0.0));
+    if (p < 0.0) return Matrix<double>(N,N,0.0);
     if (p >= 1.0) return random_symmetric(N,min_weight,max_weight,seed);
     if (min_weight > max_weight) std::swap(min_weight,max_weight);
 
     std::mt19937 rng(seed);
     std::uniform_real_distribution<double> weight_dist(min_weight, max_weight);
-    dMatrix adj(N, dVec(N, 0.0));
+    Matrix<double> adj(N,N);
 
     // Calculate exact number of edges needed
     size_t total_edges = static_cast<size_t>( ( N * (N - 1) * 0.5 ) * p );
@@ -330,40 +330,40 @@ inline dMatrix erdos_renyi_symmetric_uniform(
     {
         size_t i      = possible_edges[e].first;
         size_t j      = possible_edges[e].second;
-        double weight = weight_dist(rng);
-        adj[i][j]     = weight;
-        adj[j][i]     = weight;  // Make it symmetric
+        double    weight = weight_dist(rng);
+        adj[i,j]     = weight;
+        adj[j,i]     = weight;  // Make it symmetric
     }
 
     return adj;
 }
 
-// Small-world dMatrix (Watts-Strogatz model, ring lattice with rewiring)
+// Small-world Matrix<double> (Watts-Strogatz model, ring lattice with rewiring)
 /*----------------------------------------------------------*/
 // Parameters:
-//   N: Number of nodes (default 100)
+//   N: doubleber of nodes (default 100)
 //   k: Each node is connected to k nearest neighbors in ring topology (default 4)
 //   beta: Rewiring probability (default 0.5)
 //   weight: Edge weight for all connections (default 1.0)
 //   seed: Random seed (default 42)
 // Returns:
 //   Small-world adjacency matrix (N x N)
-inline dMatrix small_world(
-    size_t N      = 100,
-    size_t k      = 4,
-    double beta   = 0.5,
-    double weight = 1.0,
+inline Matrix<double> small_world(
+    size_t N = 100,
+    size_t k = 4,
+    double beta   = static_cast<double>(0.5),
+    double weight = static_cast<double>(1.0),
     unsigned seed = 42
 )
 {
     // Error Handling
     if (N == 0) return {};
     if (k >= N/2) return random(N,weight,weight,seed);
-    if (k == 0) return dMatrix(N,dVec(N,0.0));
+    if (k == 0) return Matrix<double>(N,N,0.0);
     if (beta < 0.0) beta = 0.0;
     else if (beta >1.0) beta = 1.0;
     std::mt19937 rng(seed);
-    dMatrix adj(N, dVec(N, 0.0));
+    Matrix<double> adj(N,N);
 
     // Initial ring lattice - ensure k/2 neighbors on each side
     size_t half_k = k / 2; // Integer division intentional
@@ -373,15 +373,15 @@ inline dMatrix small_world(
         {
             size_t right  = (i + j) % N;
             size_t left   = (i + N - j) % N;
-            adj[i][right] = weight;
-            adj[i][left]  = weight;
+            adj[i,right] = weight;
+            adj[i,left]  = weight;
         }
         // Handle odd k by adding one more connection
         if (k % 2 == 1 && N > 2*(k/2))
         {
             size_t extra  = (i + (k / 2 + 1)) % N;
-            adj[i][extra] = weight;
-            adj[extra][i] = weight;
+            adj[i,extra] = weight;
+            adj[extra,i] = weight;
         }
     }
     // Rewiring with improved logic
@@ -403,9 +403,9 @@ inline dMatrix small_world(
                 while (!found && attempts < max_attempts)
                 {
                     new_neighbor = node_dist(rng);
-                    if (new_neighbor         != i &&
-                        new_neighbor         != neighbor &&
-                        adj[i][new_neighbor] == 0.0)
+                    if (new_neighbor        != i &&
+                        new_neighbor        != neighbor &&
+                        adj[i,new_neighbor] == 0.0)
                     {
                         found = true;
                     }
@@ -414,10 +414,10 @@ inline dMatrix small_world(
 
                 if (found)
                 {
-                    adj[i][neighbor]     = 0.0;
-                    adj[neighbor][i]     = 0.0;
-                    adj[i][new_neighbor] = weight;
-                    adj[new_neighbor][i] = weight;
+                    adj[i,neighbor]     = 0.0;
+                    adj[neighbor,i]     = 0.0;
+                    adj[i,new_neighbor] = weight;
+                    adj[new_neighbor,i] = weight;
                 }
             }
         }
@@ -438,7 +438,7 @@ inline dMatrix small_world(
                     new_neighbor              = node_dist(rng);
                     if (new_neighbor         != i &&
                         new_neighbor         != extra &&
-                        adj[i][new_neighbor] == 0.0)
+                        adj[i,new_neighbor] == 0.0)
                     {
                         found = true;
                     }
@@ -447,10 +447,10 @@ inline dMatrix small_world(
 
                 if (found)
                 {
-                    adj[i][extra]        = 0.0;
-                    adj[extra][i]        = 0.0;
-                    adj[i][new_neighbor] = weight;
-                    adj[new_neighbor][i] = weight;
+                    adj[i,extra]        = 0.0;
+                    adj[extra,i]        = 0.0;
+                    adj[i,new_neighbor] = weight;
+                    adj[new_neighbor,i] = weight;
                 }
             }
         }
@@ -458,33 +458,33 @@ inline dMatrix small_world(
     return adj;
 }
 
-// Directed Small-world dMatrix (Watts-Strogatz model, ring lattice with rewiring)
+// Directed Small-world Matrix<double> (Watts-Strogatz model, ring lattice with rewiring)
 /*----------------------------------------------------------*/
 // Parameters:
-//   N: Number of nodes (default 100)
+//   N: doubleber of nodes (default 100)
 //   k: Each node has k outgoing edges in ring topology (default 4)
 //   beta: Rewiring probability (default 0.5)
 //   weight: Edge weight for all connections (default 1.0)
 //   seed: Random seed (default 42)
 // Returns:
 //   Directed small-world adjacency matrix (N x N)
-inline dMatrix small_world_directed(
+inline Matrix<double> small_world_directed(
     size_t N      = 100,
     size_t k      = 4,
-    double beta   = 0.5,
-    double weight = 1.0,
+    double    beta   = static_cast<double>(0.5),
+    double    weight = static_cast<double>(1.0),
     unsigned seed = 42
 )
 {
     // Error Handling
     if (N == 0) return {};
     if (k >= N/2) return random(N,weight,weight,seed);
-    if (k == 0) return dMatrix(N,dVec(N,0.0));
+    if (k == 0) return Matrix<double>(N,N,0.0);
     if (beta < 0.0) beta = 0.0;
     else if (beta >1.0) beta = 1.0;
 
     std::mt19937 rng(seed);
-    dMatrix       adj(N, dVec(N, 0.0));
+    Matrix<double> adj(N,N);
 
     // Initial ring lattice - create k outgoing edges for each node
     for (size_t i = 0; i < N; ++i)
@@ -492,7 +492,7 @@ inline dMatrix small_world_directed(
         for (size_t j = 1; j <= k; ++j)
         {
             size_t target  = (i + j) % N;
-            adj[target][i] = weight;
+            adj[target,i] = weight;
         }
     }
 
@@ -517,7 +517,7 @@ inline dMatrix small_world_directed(
                     new_neighbor = node_dist(rng);
                     if (new_neighbor != i && 
                         new_neighbor != neighbor && 
-                        adj[i][new_neighbor] == 0.0)
+                        adj[i,new_neighbor] == 0.0)
                     {
                         found = true;
                     }
@@ -526,8 +526,8 @@ inline dMatrix small_world_directed(
 
                 if (found)
                 {
-                    adj[neighbor][i]     = 0.0;
-                    adj[new_neighbor][i] = weight;
+                    adj[neighbor,i]     = 0.0;
+                    adj[new_neighbor,i] = weight;
                 }
             }
         }
@@ -535,11 +535,11 @@ inline dMatrix small_world_directed(
     return adj;
 }
 
-// Modular dMatrix: nodes are divided into modules, dense within, sparse between
+// Modular Matrix<double>: nodes are divided into modules, dense within, sparse between
 /*----------------------------------------------------------*/
 // Parameters:
-//   module_size: Number of nodes per module (default 100)
-//   num_modules: Number of modules (default 10)
+//   module_size: doubleber of nodes per module (default 100)
+//   num_modules: doubleber of modules (default 10)
 //   p_in: Probability of within-module connection (default 0.9)
 //   p_out: Probability of between-module connection (default 0.1)
 //   in_weight: Weight for within-module connections (default 1.0)
@@ -547,13 +547,13 @@ inline dMatrix small_world_directed(
 //   seed: Random seed (default 42)
 // Returns:
 //   Modular adjacency matrix (N x N), where N = module_size * num_modules
-inline dMatrix modular(
+inline Matrix<double> modular(
     size_t   module_size = 100,
     size_t   num_modules = 10,
-    double   p_in        = 0.9,
-    double   p_out       = 0.1,
-    double   in_weight   = 1.0,
-    double   out_weight  = 1.0,
+    double   p_in        = static_cast<double>(0.9),
+    double   p_out       = static_cast<double>(0.1),
+    double   in_weight   = static_cast<double>(1.0),
+    double   out_weight  = static_cast<double>(1.0),
     unsigned seed        = 42
 )
 {
@@ -566,7 +566,7 @@ inline dMatrix modular(
     else if (p_out > 1.0) p_out = 1.0;
     // Calculate total network size
     size_t N = module_size*num_modules;
-	dMatrix adj(N,dVec(N,0.0));
+	Matrix<double> adj(N,N);
     std::mt19937 rng(seed);
     std::bernoulli_distribution in_dist(p_in), out_dist(p_out);
     for (size_t m = 0; m < num_modules; ++m)
@@ -580,7 +580,7 @@ inline dMatrix modular(
             {
                 if (i != j && in_dist(rng))
                 {
-                    adj[i][j] = in_weight;
+                    adj[i,j] = in_weight;
                 }
             }
         }
@@ -595,8 +595,8 @@ inline dMatrix modular(
                 {
                     if (out_dist(rng))
                     {
-                        adj[i][j] = out_weight;
-                        adj[j][i] = out_weight;
+                        adj[i,j] = out_weight;
+                        adj[j,i] = out_weight;
                     }
                 }
             }
@@ -605,28 +605,28 @@ inline dMatrix modular(
     return adj;
 }
 
-// Hierarchical dMatrix: recursively nested modules with level-dependent connection probabilities
+// Hierarchical Matrix<double>: recursively nested modules with level-dependent connection probabilities
 /*----------------------------------------------------------*/
 // Parameters:
 //   N: Base module size at the lowest level (default 100)
-//   levels: Number of hierarchical levels (0 returns Erdos-Renyi N x N matrix) (default 2)
+//   levels: doubleber of hierarchical levels (0 returns Erdos-Renyi N x N matrix) (default 2)
 //   p_in: Base within-module connection probability (decays with level) (default 0.9)
 //   p_out: Base between-module connection probability (decays with level) (default 0.1)
 //   in_weight: Weight for within-module connections (default 1.0)
 //   out_weight: Weight for between-module connections (default 1.0)
 //   level_decay: Decay factor for connection probabilities at each level (0 < level_decay <= 1) (default 0.5)
 //   seed: Random seed (default 42)
-//   base_module_num: Number of modules in the base level of the hierarchy (default 2)
+//   base_module_num: doubleber of modules in the base level of the hierarchy (default 2)
 // Returns:
 //   Hierarchical adjacency matrix (size: N * 2^(levels-1) * base_module_num)
-inline dMatrix hierarchical(
+inline Matrix<double> hierarchical(
     size_t   N               = 100,
     size_t   levels          = 2,
-    double   p_in            = 0.9,
-    double   p_out           = 0.1,
-    double   in_weight       = 1.0,
-    double   out_weight      = 1.0,
-    double   level_decay     = 0.5,
+    double   p_in            = static_cast<double>(0.9),
+    double   p_out           = static_cast<double>(0.1),
+    double   in_weight       = static_cast<double>(1.0),
+    double   out_weight      = static_cast<double>(1.0),
+    double   level_decay     = static_cast<double>(0.5),
     unsigned seed            = 42,
     size_t   base_module_num = 2
 )
@@ -648,17 +648,17 @@ inline dMatrix hierarchical(
     {
         return modular(N, base_module_num, this_p_in, this_p_out, in_weight, out_weight, seed);
     }
-    dMatrix adj(max_nodes, dVec(max_nodes, 0.0));
+    Matrix<double> adj(max_nodes,max_nodes);
     // Recursively build left and right submodules
-    auto   left  = hierarchical(N, levels - 1, p_in, p_out, in_weight, out_weight, level_decay, seed + 1, base_module_num);
-    auto   right = hierarchical(N, levels - 1, p_in, p_out, in_weight, out_weight, level_decay, seed + level_multiplier, base_module_num);
+    auto left  = hierarchical(N, levels - 1, p_in, p_out, in_weight, out_weight, level_decay, seed + 1, base_module_num);
+    auto right = hierarchical(N, levels - 1, p_in, p_out, in_weight, out_weight, level_decay, seed + level_multiplier, base_module_num);
     size_t half  = N * (static_cast<size_t>(1)<<(levels-2)) * base_module_num;
     for (size_t i = 0; i < half; ++i)
     {
         for (size_t j = 0; j < half; ++j)
         {
-            adj[i][j]               = left[i][j];
-            adj[half + i][half + j] = right[i][j];
+            adj[i,j]               = left[i,j];
+            adj[half + i,half + j] = right[i,j];
         }
     }
     std::mt19937                rng(seed);
@@ -669,8 +669,8 @@ inline dMatrix hierarchical(
         {
             if (out_dist(rng))
             {
-                adj[i][j] = out_weight;
-                adj[j][i] = out_weight;
+                adj[i,j] = out_weight;
+                adj[j,i] = out_weight;
             }
         }
     }
@@ -690,14 +690,15 @@ enum class NetworkTopology
     Modular,
     Hierarchical
 };
+
 struct NetworkParams
 {
     NetworkTopology topology=NetworkTopology::Uniform;
-    double p1      = 1.0;
-    double p2      = 0.5;
-    double weight1 = 1.0;
-    double weight2 = 0.5;
-    double ld      = 0.1;
+    double p1      = static_cast<double>(1.0);
+    double p2      = static_cast<double>(0.5);
+    double weight1 = static_cast<double>(1.0);
+    double weight2 = static_cast<double>(0.5);
+    double ld      = static_cast<double>(0.1);
     size_t degree  = 2;
     size_t seed    = 41;
     size_t baseN   = 50;
@@ -707,7 +708,7 @@ struct NetworkParams
     size_t hLevel  = 1;
 };
 
-inline dMatrix initialize_network(const NetworkParams& networkParams)
+inline Matrix<double> initialize_network(const NetworkParams& networkParams)
 {
 	switch(networkParams.topology)
     {
@@ -738,7 +739,7 @@ inline dMatrix initialize_network(const NetworkParams& networkParams)
 }
 
 // -----------------------------------------------------------------------------
-// Sparse small-world dMatrix (Watts-Strogatz, returns SparsedMatrix)
+// Sparse small-world Matrix<double> (Watts-Strogatz, returns SparsedMatrix<double>)
 inline SparsedMatrix small_world_sparse(
     size_t   N,
     size_t   k,
@@ -753,13 +754,13 @@ inline SparsedMatrix small_world_sparse(
 }
 
 
-// Multilayered dMatrix: block diagonal matrix, each block is a layer
-inline dMatrix multilayered(const std::vector<dMatrix> &layers)
+// Multilayered Matrix<double>: block diagonal matrix, each block is a layer
+inline Matrix<double> multilayered(const Vec<Matrix<double>> &layers)
 {
     size_t offset = 0;
     size_t total_N = 0;
     for (const auto &layer : layers) total_N += layer.size();
-    dMatrix adj(total_N, dVec(total_N, 0.0));
+    Matrix<double> adj(total_N,total_N, 0.0);
     for (const auto &layer : layers)
     {
         size_t n = layer.size();
@@ -767,7 +768,7 @@ inline dMatrix multilayered(const std::vector<dMatrix> &layers)
         {
             for (size_t j = 0; j < n; ++j)
             {
-                adj[offset + i][offset + j] = layer[i][j];
+                adj[offset+i,offset + j] = layer[i][j];
             }
         }
         offset += n;
@@ -782,9 +783,9 @@ inline dMatrix multilayered(const std::vector<dMatrix> &layers)
 //   layer_weights: Vector of weights (one per layer)
 // Returns:
 //   Weighted sum of layers as a single adjacency matrix
-inline dMatrix effective_multiplex(
-    const Vec<dMatrix> &layers,
-    const dVec                 &layer_weights
+inline Matrix<double> effective_multiplex(
+    const Vec<Matrix<double>> &layers,
+    const Vec<double>         &layer_weights
 )
 {
     if (layers.empty()) return {};
@@ -800,7 +801,7 @@ inline dMatrix effective_multiplex(
             if (layers[l][i].size() != N) return {};
         }
     }
-    dMatrix adj_out(N, dVec(N, 0.0));
+    Matrix<double> adj_out(N,N,0.0);
     for (size_t l = 0; l < num_layers; ++l)
         for (size_t i = 0; i < N; ++i)
             for (size_t j = 0; j < N; ++j)
@@ -811,18 +812,18 @@ inline dMatrix effective_multiplex(
 // generate_multiplex_network_layers: Generate multiple network layers for a multiplex network
 /*----------------------------------------------------------*/
 // Parameters:
-//   N: Number of nodes (consistent across all layers) (default 100)
-//   num_layers: Number of layers to generate (default 2)
+//   N: doubleber of nodes (consistent across all layers) (default 100)
+//   num_layers: doubleber of layers to generate (default 2)
 //   layer_generation_types: Vector of topology types for each layer (default "erdos_renyi")
-//   layer_params: dMatrix of parameters for each layer (one row per layer)
+//   layer_params: Matrix<double> of parameters for each layer (one row per layer)
 //   layer_seeds: Vector of random seeds for each layer (default 42)
 // Returns:
 //   Vector of adjacency matrices, one per layer
-inline Vec<dMatrix> generate_multiplex_network_layers(const Vec<NetworkParams>& layer_configs)
+inline Vec<Matrix<double>> generate_multiplex_network_layers(const Vec<NetworkParams>& layer_configs)
 {
     if (layer_configs.empty()) return {};
-    Vec<dMatrix> layers; layers.reserve(layer_configs.size());
-    for (const auto config : layer_configs) layers.push_back(initialize_network(config));
+    Vec<Matrix<double>> layers; layers.reserve(layer_configs.size());
+    for (const auto& config : layer_configs) layers.push_back(initialize_network(config));
 	return layers;
 }
 
@@ -833,13 +834,13 @@ inline Vec<dMatrix> generate_multiplex_network_layers(const Vec<NetworkParams>& 
 //   threshold: Minimum absolute value to consider as an edge (default 1e-12)
 // Returns:
 //   Vector of in-degrees (number of incoming edges for each node)
-inline wVec in_degrees(const dMatrix& adj, double threshold = 1e-12)
+inline wVec in_degrees(const Matrix<double>& adj, double threshold = 1e-12)
 {
     size_t N = adj.size();
     wVec   indeg(N, 0);
     for (size_t i = 0; i < N; ++i)
         for (size_t j = 0; j < N; ++j)
-            if (std::abs(adj[i][j]) > threshold)
+            if (std::abs(adj[i,j]) > threshold)
                 ++indeg[i];
     return indeg;
 }
@@ -851,13 +852,13 @@ inline wVec in_degrees(const dMatrix& adj, double threshold = 1e-12)
 //   threshold: Minimum absolute value to consider as an edge (default 1e-12)
 // Returns:
 //   Vector of out-degrees (number of outgoing edges for each node)
-inline wVec out_degrees(const dMatrix& adj, double threshold = 1e-12)
+inline wVec out_degrees(const Matrix<double>& adj, double threshold = 1e-12)
 {
     size_t N = adj.size();
     wVec   outdeg(N, 0);
     for (size_t j = 0; j < N; ++j)
         for (size_t i = 0; i < N; ++i)
-            if (std::abs(adj[i][j]) > threshold)
+            if (std::abs(adj[i,j]) > threshold)
                 ++outdeg[j];
     return outdeg;
 }

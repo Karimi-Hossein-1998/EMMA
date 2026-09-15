@@ -193,3 +193,69 @@ inline void DrawFontMenu()
         ImGui::EndMenu();
     }
 }
+
+inline void ImGuiTextURL(const char* label, const char* url)
+{
+    ImGui::PushStyleColor(ImGuiCol_Text,ImVec4(0.35f,0.65f,0.95f,1.0f));
+    ImGui::TextUnformatted(label);
+    ImGui::PopStyleColor();
+
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("Open link: %s",url);
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+
+        ImVec2 min = ImGui::GetItemRectMin();
+        ImVec2 max = ImGui::GetItemRectMax();
+        min.y = max.y;
+        ImGui::GetWindowDrawList()->AddLine(min,max,IM_COL32(89, 165, 242, 255));
+
+        if (ImGui::IsItemClicked()) OpenURL(url);        
+    }
+}
+
+inline void DrawAboutPage(bool& showAbout)
+{
+    if (!showAbout) return;
+
+    ImGui::OpenPopup("About EMMA");
+    ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center,ImGuiCond_Appearing,ImVec2(0.5f,0.5f));
+    ImGui::SetNextWindowSize(ImVec2(400,0));
+    if (ImGui::BeginPopupModal("About EMMA", &showAbout, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::TextUnformatted("EMMA v0.1.0");
+        ImGui::TextColored(ImVec4(0.8f,0.8f,0.8f,1.0f), "Hobby Project Centered Around Performance!");
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        ImGui::Text("Contributors & Authors:");
+        ImGui::BulletText("Hossein - Core ODE Solver & Architecture");
+        ImGui::BulletText("Kiarash Azarnia - Web Developer");
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        ImGui::Text("Links:");
+        ImGuiTextURL("GitHub Repository","https://github.com/ConsultantKarimi-Hossein-1998/EMMA/");
+        ImGuiTextURL("Web APP!","https://Karimi-Hossein-1998.github.io/EMMA/");
+        ImGuiTextURL("Hossein","https://Karimi-Hossein-1998.github.io/");
+        ImGuiTextURL("Kiarash Azarnia","https://kiarash.io/");
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        if (ImGui::Button("Close",ImVec2(120,0)))
+        {
+            showAbout = false;
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+}
+

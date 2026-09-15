@@ -1,6 +1,10 @@
 # Build outputs
 build/
+buildw/
+build*/
 build-*/
+android/
+android-*/
 *.o
 *.exe
 

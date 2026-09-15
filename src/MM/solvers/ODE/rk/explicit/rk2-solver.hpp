@@ -5,33 +5,51 @@ namespace MathEngine
 { // MathEngine namespace
 namespace funcWrapper
 {
+
 template <bool EnableCallBack>
-inline SolverResults rk2(const SolverParameters& Params)
+inline SolverResults rk2(const ODESolverParameters& Params)
 {
     // Extract parameters for clarity
-    const auto&  f  = Params.derivative;
-    const auto&  y0 = Params.initialConditions;
-    const double t0 = Params.t0;
-    const double t1 = Params.t1;
-    const double dt = Params.dt;
+    const MyFunc&       f  = Params.derivative;
+    const CallBackFunc& cb = Params.onStep;
+    const Vec<double>&  y0 = Params.initialConditions;
+    const double        t0 = Params.t0;
+    const double        t1 = Params.t1;
+    const double        dt = Params.dt;
     const size_t N  = y0.size();
     if (N==0 || dt<=1e-13 || t0>t1) return SolverResults{};
 
     // Initialize solution storage
-    const size_t num_steps  = static_cast<size_t>(std::round((t1 - t0) / dt));
-    auto         solution   = dMatrix(num_steps + 1, dVec(N));
-    auto         timePoints = dVec(num_steps + 1);
+    const size_t num_steps = static_cast<size_t>(std::round((t1 - t0) / dt));
+    Matrix<double> solution   = Matrix<double>(num_steps + 1,N);
+    Vec<double>    timePoints = Vec<double>(num_steps + 1);
 
-    solution[0]   = y0;
+    Vec<double> y(y0), y_temp(N,double{}),k1(N, double{}), k2(N, double{});
+    double dt_half = static_cast<double>(dt * 0.5);
+
+    // double*       __restrict__ y_tptr = y_temp.data();
+    // double*       __restrict__ k1ptr  = k1.data();
+    // double*       __restrict__ k2ptr  = k2.data();
+    // double*       __restrict__ k3ptr  = k3.data();
+    // double*       __restrict__ k4ptr  = k4.data();
+    double*       __restrict__ yptr   = y.data();
+    double*       __restrict__ solptr = solution.ptr();
+    const double* __restrict__ y0ptr  = y0.data();
+    #pragma omp simd
+    for (size_t i = 0; i < N; ++i)
+        solptr[i] = y0ptr[i];
+    // solution.SetRow(0, y0);
     timePoints[0] = t0;
-
-    auto y       = y0;
-    auto y_temp  = dVec(N, 0.0);
-    dVec k1(N, 0.0), k2(N, 0.0);
-    auto dt_half = dt * 0.5;
-
-    OneStepSolverResult stepRes;
     // Main integration loop
+    OneStepSolverResult stepRes{
+        .sol = y0,
+        .timePoint = t0,
+        .stepSize = dt
+    };
+    if constexpr (EnableCallBack)
+    {
+        cb(stepRes);
+    }
     for (size_t i = 0; i < num_steps; ++i)
     {
         const double t = timePoints[i];
@@ -45,51 +63,54 @@ inline SolverResults rk2(const SolverParameters& Params)
         for (size_t j = 0; j < N; ++j)
             y[j] += dt * k2[j];
 
-        solution[i + 1] = y;
+        #pragma omp simd
+        for (size_t j = 0; j<N; ++j)
+            solptr[(i+1)*N+j] = y[j];
+        // solution.SetRow(i+1,y);
         const double t_next = (i+1)==num_steps?t1:t0+(i+1)*dt;
         timePoints[i + 1] = t_next;
         if constexpr (EnableCallBack)
         {
-            if (Params.onStep)
-            {
-                stepRes.sol = y;
-                stepRes.timePoint = timePoints[i+1];
-                stepRes.stepSize = dt;
-                Params.onStep(stepRes);
-            }
+            stepRes.sol       = y;
+            stepRes.timePoint = t_next;
+            stepRes.stepSize  = dt;
+            cb(stepRes);
         }
     }
 
-    auto results       = SolverResults{};
-    results.solution   = solution;
-    results.timePoints = timePoints;
+    SolverResults results{
+        .solution   = solution,
+        .timePoints = timePoints
+    };
     return results;
 }
 } // End namespace funcWrapper
 
-inline SolverResults rk2_solver(const SolverParameters& Params)
+inline SolverResults rk2_solver(const ODESolverParameters& Params)
 {
     return funcWrapper::rk2<false>(Params);
 }
-inline SolverResults rk2_solver_callback(const SolverParameters& Params)
+
+inline SolverResults rk2_solver_callback(const ODESolverParameters& Params)
 {
     return funcWrapper::rk2<true>(Params);
 }
 // Basic interface wrapper for rk2_solver
-inline dMatrix rk2_solver(
-    MyFunc       deriv,
-    const dVec& y0,
-    double       t0,
-    double       t1,
-    double       dt
+inline Matrix<double> rk2_solver(
+    MyFunc             deriv,
+    const Vec<double>& y0,
+    double             t0,
+    double             t1,
+    double             dt
 )
 {
-    auto params               = SolverParameters{};
-    params.derivative         = deriv;
-    params.initialConditions = y0;
-    params.t0                 = t0;
-    params.t1                 = t1;
-    params.dt                 = dt;
+    ODESolverParameters params{
+        .derivative        = deriv,
+        .initialConditions = y0,
+        .t0                = t0,
+        .t1                = t1,
+        .dt                = dt
+    };
     return rk2_solver(params).solution;
 }
 
