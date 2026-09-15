@@ -10,7 +10,10 @@
 #include <concepts>
 #include <execution>
 #if !defined(__EMSCRIPTEN__) && __has_include(<stdfloat>)
+#define HAS_STDFLOAT 1
 #include <stdfloat>
+#else
+#define HAS_STDFLOAT 0
 #endif
 #include <cstdint>
 #include <type_traits>
@@ -87,7 +90,7 @@ std::string get_type_name()
 		else if constexpr (std::same_as<T, std::float128_t>)        return "std::float128_t";
 		#endif
 
-		#if defined(__GNUC__)
+		#if defined(__GNUC__) && !defined(__EMSCRIPTEN__)
 		else if constexpr (std::same_as<T,_Float32>)                return "std::float32";
 		else if constexpr (std::same_as<T,_Float64>)                return "std::float64";
 		else if constexpr (std::same_as<T,_Float128>)               return "std::float128";
@@ -145,10 +148,11 @@ public:
 		if (step==0 || (step>0 && stop<=start) || (step<0 && stop>=start)) size = 0;
 		else
 		{
-			std::float64_t diff = static_cast<std::float64_t>(stop-start); std::float64_t dStep = static_cast<std::float64_t>(step);
-			std::float64_t divided = diff/dStep;
+			double diff = static_cast<double>(stop-start); 
+			double dStep = static_cast<double>(step);
+			double divided = diff/dStep;
 			std::uint64_t newSize = static_cast<std::uint64_t>(divided);
-			std::float64_t eps=std::max<std::float64_t>(1e-14,divided*std::numeric_limits<std::float64_t>::epsilon()*10.0);
+			double eps=std::max<double>(1e-14, divided*std::numeric_limits<double>::epsilon()*10.0);
 			size = (divided-static_cast<double>(newSize))>eps?newSize+1:newSize;
 		}
 	}
