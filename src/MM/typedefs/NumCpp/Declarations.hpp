@@ -9,7 +9,7 @@
 #include <string>
 #include <concepts>
 #include <execution>
-#ifndef __EMSCRIPTEN__
+#if !defined(__EMSCRIPTEN__) && __has_include(<stdfloat>)
 #include <stdfloat>
 #endif
 #include <cstdint>
