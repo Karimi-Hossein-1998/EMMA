@@ -25,7 +25,7 @@ namespace MathEngine
 { // MathEngine namespace
 // -----------------------------------------------------------------------------
 // Constant expression for pi
-static constexpr const std::float64_t PI        = 3.14159265358979323846;
+static constexpr const double PI        = 3.14159265358979323846;
 static constexpr const std::uint8_t   max_order = 10;
 
 // -----------------------------------------------------------------------------
@@ -85,7 +85,7 @@ struct ODESolverParameters
     bool         variableSteps      = false;      // Wether to use variable step size (or not)
     bool         attemptsHistory    = false;      // Controls wether the errors and step sizes are stored for all attempts or not.
     bool         weightedError      = true;       // Calculate error based on weighted error formula
-    bool         normError          = false;      // Calculate error based on norm error formula (norm or the solution is used instead of maximum of the absolute value of the elements of the solution)
+    bool         normError          = false;      // Calculate error based on norm error formula (norm or the solution is used instead of maximum of the absolute value of the elements of the solut[...]
 };
 
 struct SolverResults 
