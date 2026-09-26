@@ -108,41 +108,41 @@ class TDMatrix
 template <Number T>
 inline void TDMatrix<T>::printm(std::uint16_t width, std::uint16_t accuracy) const
 {
-	std::print("TDMatrix ({}), Shape: ({}, {})\n",name_of_the_type,nDim,nDim);
+	MATH_PRINT("TDMatrix ({}), Shape: ({}, {})\n",name_of_the_type,nDim,nDim);
 	if (nDim==0 || diag.empty()) return;
-	std::print("{{");
+	MATH_PRINT("{{");
 	if constexpr (std::is_integral_v<T>)
 	{
 		for (size_t r=0; r<nDim; ++r)
 		{
-			r==0?std::print(" {{"):std::print("  {{");
+			r==0?MATH_PRINT(" {{"):MATH_PRINT("  {{");
 			for (size_t c=0; c<nDim-1; ++c)
 			{
-				if (r==c) std::print(" {0:^{1}d},",diag[r],width);
-				else if (r==c+1) std::print(" {0:^{1}d},",lo[c],width);
-				else if (r==c-1) std::print(" {0:^{1}d},",up[r],width);
-				else std::print(" {0:^{1}d},",T{},width);
+				if (r==c) MATH_PRINT(" {0:^{1}d},",diag[r],width);
+				else if (r==c+1) MATH_PRINT(" {0:^{1}d},",lo[c],width);
+				else if (r==c-1) MATH_PRINT(" {0:^{1}d},",up[r],width);
+				else MATH_PRINT(" {0:^{1}d},",T{},width);
 			}
-			if (r==nDim-1) std::print(" {0:^{1}d} }} }}\n",diag[r],width);
-			else if (r==nDim-2) std::print(" {0:^{1}d} }}\n",up[r],width);
-			else std::print(" {0:^{1}d} }}\n",T{},width);
+			if (r==nDim-1) MATH_PRINT(" {0:^{1}d} }} }}\n",diag[r],width);
+			else if (r==nDim-2) MATH_PRINT(" {0:^{1}d} }}\n",up[r],width);
+			else MATH_PRINT(" {0:^{1}d} }}\n",T{},width);
 		}
 	}
 	else
 	{
 		for (size_t r=0; r<nDim; ++r)
 		{
-			r==0?std::print(" {{"):std::print("  {{");
+			r==0?MATH_PRINT(" {{"):MATH_PRINT("  {{");
 			for (size_t c=0; c<nDim-1; ++c)
 			{
-				if (r==c) std::print(" {0:^{1}.{2}g},",diag[r],width,accuracy);
-				else if (r==c+1) std::print(" {0:^{1}.{2}g},",lo[c],width,accuracy);
-				else if (r==c-1) std::print(" {0:^{1}.{2}g},",up[r],width,accuracy);
-				else std::print(" {0:^{1}.{2}g},",T{},width,accuracy);
+				if (r==c) MATH_PRINT(" {0:^{1}.{2}g},",diag[r],width,accuracy);
+				else if (r==c+1) MATH_PRINT(" {0:^{1}.{2}g},",lo[c],width,accuracy);
+				else if (r==c-1) MATH_PRINT(" {0:^{1}.{2}g},",up[r],width,accuracy);
+				else MATH_PRINT(" {0:^{1}.{2}g},",T{},width,accuracy);
 			}
-			if (r==nDim-1) std::print(" {0:^{1}.{2}g} }} }}\n",diag[r],width,accuracy);
-			else if (r==nDim-2) std::print(" {0:^{1}.{2}g} }}\n",up[r],width,accuracy);
-			else std::print(" {0:^{1}.{2}g} }}\n",T{},width,accuracy);
+			if (r==nDim-1) MATH_PRINT(" {0:^{1}.{2}g} }} }}\n",diag[r],width,accuracy);
+			else if (r==nDim-2) MATH_PRINT(" {0:^{1}.{2}g} }}\n",up[r],width,accuracy);
+			else MATH_PRINT(" {0:^{1}.{2}g} }}\n",T{},width,accuracy);
 		}
 	}
 }

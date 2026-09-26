@@ -113,31 +113,31 @@ class UTMatrix
 template <Number T>
 inline void UTMatrix<T>::printm(std::uint16_t width, std::uint16_t accuracy) const
 {
-	std::print("UTMatrix ({}), Shape: ({}, {})\n",name_of_the_type,nDim,nDim);
+	MATH_PRINT("UTMatrix ({}), Shape: ({}, {})\n",name_of_the_type,nDim,nDim);
 	if (nDim==0 || data.empty()) return;
-	std::print("{{");
+	MATH_PRINT("{{");
 	if constexpr (std::is_integral_v<T>)
 	{
 		for (size_t r=0; r<nDim; ++r)
 		{
-			r==0?std::print(" {{"):std::print("  {{");
+			r==0?MATH_PRINT(" {{"):MATH_PRINT("  {{");
 			for (size_t c=0; c<nDim-1; ++c)
 			{
-				std::print(" {0:^{1}d},",r>c?T{}:data[((((nDim<<1)-r+1)*r)>>1)+c-r],width);
+				MATH_PRINT(" {0:^{1}d},",r>c?T{}:data[((((nDim<<1)-r+1)*r)>>1)+c-r],width);
 			}
-			(r==(nDim-1))?std::print(" {0:^{1}d} }} }}\n",data[data.size()-1],width):std::print(" {0:^{1}d}}},\n",data[((((nDim<<1)-r+1)*r)>>1)+nDim-1-r],width);
+			(r==(nDim-1))?MATH_PRINT(" {0:^{1}d} }} }}\n",data[data.size()-1],width):MATH_PRINT(" {0:^{1}d}}},\n",data[((((nDim<<1)-r+1)*r)>>1)+nDim-1-r],width);
 		}
 	}
 	else
 	{
 		for (size_t r=0; r<nDim; ++r)
 		{
-			r==0?std::print(" {{"):std::print("  {{");
+			r==0?MATH_PRINT(" {{"):MATH_PRINT("  {{");
 			for (size_t c=0; c<nDim-1; ++c)
 			{
-				std::print(" {0:^{1}.{2}g},",r>c?T{}:data[((((nDim<<1)-r+1)*r)>>1)+c-r],width,accuracy);
+				MATH_PRINT(" {0:^{1}.{2}g},",r>c?T{}:data[((((nDim<<1)-r+1)*r)>>1)+c-r],width,accuracy);
 			}
-			(r==(nDim-1))?std::print(" {0:^{1}.{2}g} }} }}\n",data[data.size()-1],width,accuracy):std::print(" {0:^{1}.{2}g} }},\n",data[((((nDim<<1)-r+1)*r)>>1)+nDim-1-r],width,accuracy);
+			(r==(nDim-1))?MATH_PRINT(" {0:^{1}.{2}g} }} }}\n",data[data.size()-1],width,accuracy):MATH_PRINT(" {0:^{1}.{2}g} }},\n",data[((((nDim<<1)-r+1)*r)>>1)+nDim-1-r],width,accuracy);
 		}
 	}
 }
@@ -165,7 +165,7 @@ inline UTMatrix<T> MatMul(const UTMatrix<T>& u1, const UTMatrix<T>& u2, bool For
 		}
 		else
 		{
-			std::println("Dimension mismatch.... Quitting!");
+			MATH_PRINTLN("Dimension mismatch.... Quitting!");
 			return result;
 		}
 	}

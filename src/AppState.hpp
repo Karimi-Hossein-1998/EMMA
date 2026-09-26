@@ -12,6 +12,7 @@
 #include "MM/solvers/ODE/multistep/abm-solver.hpp"
 #include "MM/initializers/initials.hpp"
 #include "MM/network/topology.hpp"
+#include "MM/utility/write.hpp"
 #include "MM/models/kuramoto/general.hpp"
 #include "MM/models/kuramoto/sparse.hpp"
 #include "MM/models/kuramoto/special.hpp"
@@ -99,6 +100,34 @@ enum class SolverMethod
     AB,
     ABM
 };
+enum class SidebarTab : int
+{
+    Model=0,
+    Topology,
+    Initials,
+    Solver,
+    Plot,
+    Run,
+    Save,
+    Count
+};
+struct SidebarTabInfo
+{
+    const char* icon;
+    const char* title;
+};
+constexpr SidebarTabInfo SidebarTabs[] = {
+    { ICON_FA_DIAGRAM_PROJECT, "Model"             },
+    { ICON_FA_NETWORK_WIRED,   "Topology"          },
+    { ICON_FA_WAVE_SQUARE,     "Initial Condition" },
+    { ICON_FA_GEARS,           "Solver"            },
+    { ICON_FA_CHART_LINE,      "Plot"              },
+    { ICON_FA_PLAY,            "Run"               },
+    { ICON_FA_FLOPPY_DISK,     "Save"              },
+};
+constexpr int SidebarTabCount = static_cast<int>(sizeof(SidebarTabs) / sizeof(SidebarTabs[0]));
+constexpr float SidebarRailWidth = 52.0f;
+static_assert(SidebarTabCount == static_cast<int>(SidebarTab::Count), "Sidebar icon table must match SidebarTab");
 
 struct GeneralModelParams
 {
@@ -175,6 +204,55 @@ struct PlotParams
     bool   showPlotSecond                 = false;
     bool   showPlotThird                  = false;
 };
+struct SaveParams
+{
+    char outputDir[256]   = "EMMAOutput";
+    bool saveAdjacency      = true;
+    bool savePhases         = true;
+    bool saveFrequencies    = true;
+    bool saveSolution       = true;
+    bool saveTimePoints     = true;
+    bool saveOrderParameter = true;
+    bool binary             = false;
+    bool append             = false;
+    int  precision          = 15;
+    int  colWidth           = 20;
+    int  fpFormatIndex      = 0; // 0=Scientific, 1=Fixed, 2=Default
+    int  alignmentIndex     = 2; // 0=Left, 1=Right, 2=Center, 3=None
+};
+
+// Each savable artifact is tagged with the model it belongs to, so we only
+// write (and offer in the UI) the data relevant to the active model.
+// Artifacts marked universal (e.g. the solution trajectory) apply to every model.
+enum class SaveArtifactKind : int
+{
+    Adjacency = 0,
+    InitialPhases,
+    IntrinsicFrequencies,
+    Solution,
+    TimePoints,
+    OrderParameter,
+    Count
+};
+struct SaveArtifact
+{
+    const char* label;
+    const char* subDir;
+    const char* fileName;
+    ModelType   model;     // owning model (ignored when universal)
+    bool        universal; // applies to every model type
+    bool        SaveParams::* toggle;
+};
+constexpr SaveArtifact SaveArtifacts[] = {
+    { "Adjacency Matrix",       "Topology",          "AdjacencyMatrix.csv",      ModelType::Kuramoto, false, &SaveParams::saveAdjacency      },
+    { "Initial Phases",         "InitialConditions", "InitialPhases.csv",        ModelType::Kuramoto, false, &SaveParams::savePhases         },
+    { "Intrinsic Frequencies",  "InitialConditions", "IntrinsicFrequencies.csv", ModelType::Kuramoto, false, &SaveParams::saveFrequencies    },
+    { "Solution",               "Solution",          "Solution.csv",             ModelType::Kuramoto, true,  &SaveParams::saveSolution       },
+    { "Time Points",            "Solution",          "TimePoints.csv",           ModelType::Kuramoto, true,  &SaveParams::saveTimePoints     },
+    { "Order Parameter",        "Analysis",          "OrderParameter.csv",       ModelType::Kuramoto, false, &SaveParams::saveOrderParameter },
+};
+constexpr int SaveArtifactCount = static_cast<int>(sizeof(SaveArtifacts) / sizeof(SaveArtifacts[0]));
+static_assert(SaveArtifactCount == static_cast<int>(SaveArtifactKind::Count), "SaveArtifact table must match SaveArtifactKind");
 
 ////////////////////////////////////
 /////                          /////
@@ -190,6 +268,8 @@ class AppState
         NetParams adjParams;
         SolverParams solverParams;
         PlotParams plotParams;
+        SaveParams saveParams;
+        std::string saveStatus;
         MathEngine::dMatrix adj; // Adjacency (for any system that might need it)
         MathEngine::SparsedMatrix sparseAdj = MathEngine::SparsedMatrix(modelParams.N); // Sparse adjacency
         // MathEngine::dVec delayTimes = {0.0};
@@ -213,10 +293,10 @@ class AppState
         bool hasSimRan=false;
         bool DarkTheme=true;
         bool showAbout=false;
+        int activeSidebarTab = -1; // -1 = drawer closed (no section selected)
 
         inline void RenderUI()
         {
-            drawTopMenuBar();
             if (showStyleEditor)
             {
                 const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -228,77 +308,45 @@ class AppState
                 ImGui::End();
             }
             const ImGuiViewport* viewport = ImGui::GetMainViewport();
-            ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + padding, viewport->WorkPos.y + padding), ImGuiCond_Always);
-            ImGui::SetNextWindowSize(ImVec2(viewport->WorkSize.x * 0.48f, viewport->WorkSize.y - (2 * padding)), ImGuiCond_Always);
-            if (ImGui::Begin("Control Centre",nullptr,ImGuiWindowFlags_NoCollapse))
+
+            // Activity bar: a seamless strip flush against the app border (always visible).
+            ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x, viewport->WorkPos.y), ImGuiCond_Always);
+            ImGui::SetNextWindowSize(ImVec2(SidebarRailWidth, viewport->WorkSize.y), ImGuiCond_Always);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+            ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.03f, 0.03f, 0.03f, 1.0f));
+            if (ImGui::Begin("##ActivityBar", nullptr,
+                ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings |
+                ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus))
             {
-                if (ImGui::BeginTabBar("Contral Tabs",ImGuiTabBarFlags_None))
-                {
-                    if (ImGui::BeginTabItem("Model Details"))
-                    {
-                        DrawModelPanelContent();
-                        DrawTopologyPanelContent();
-                        ImGui::EndTabItem();
-                    }
-                    if (ImGui::BeginTabItem("Initial Condition"))
-                    {
-                        DrawInitialsPanelContent();
-                        ImGui::EndTabItem();
-                    }
-                    if (ImGui::BeginTabItem("Solver Parameters"))
-                    {
-                        DrawODESolverParametersPanelContent();
-                        ImGui::EndTabItem();
-                    }
-                    if (ImGui::BeginTabItem("Plot Parameters"))
-                    {
-                        DrawPlotPanelContent();
-                        ImGui::EndTabItem();
-                    }
-                    if (ImGui::BeginTabItem("Run"))
-                    {
-                        DrawProgressBar();
-                        ImGui::Spacing();
-                        RenderChrono();
-                        ImGui::Spacing();
-                        bool running = isSimRunning.load();
-                        if (running) ImGui::BeginDisabled();
-                        if (ImGui::Button(running?"Running...":"Begin Simulation",ImVec2(-1,0))) StartSimulation();
-                        if (running) ImGui::EndDisabled();
-                        ImGui::EndTabItem();
-                    }
-                    ImGui::EndTabBar();
-                }
+                DrawActivityBar();
             }
             ImGui::End();
+            ImGui::PopStyleColor();
+            ImGui::PopStyleVar(2);
+
+            // Drawer: a resizable content panel, shown only while a section is open.
+            if (activeSidebarTab >= 0)
+            {
+                const char* title = SidebarTabs[activeSidebarTab].title;
+                char drawerName[64];
+                snprintf(drawerName, sizeof(drawerName), "%s##SidebarDrawer", title);
+                ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + SidebarRailWidth, viewport->WorkPos.y), ImGuiCond_Always);
+                ImGui::SetNextWindowSize(ImVec2(viewport->WorkSize.x * 0.46f, viewport->WorkSize.y), ImGuiCond_FirstUseEver);
+                ImGui::SetNextWindowSizeConstraints(ImVec2(280.0f, 200.0f), ImVec2(FLT_MAX, FLT_MAX));
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.0f, 12.0f));
+                if (ImGui::Begin(drawerName, nullptr, ImGuiWindowFlags_NoCollapse))
+                {
+                    DrawDrawerContent();
+                }
+                ImGui::End();
+                ImGui::PopStyleVar();
+            }
+
             RenderModals();
             DrawAboutPage(showAbout);
             DrawPlotWindow();
-        }
-        inline void drawTopMenuBar()
-        {
-            if (ImGui::BeginMainMenuBar())
-            {
-                if (ImGui::BeginMenu("Options"))
-                {
-                    DrawFontMenu();
-                    ImGui::Separator();
-                    if (ImGui::MenuItem("Show ImGui Style Editor",nullptr,&showStyleEditor)) {}
-                    ImGui::Spacing();
-                    ImGui::Separator();
-                    ImGui::Spacing();
-                    ImGui::EndMenu();
-                }
-                if (ImGui::BeginMenu("Help"))
-                {
-                    if (ImGui::MenuItem("About"))
-                    {
-                        showAbout = true;
-                    }
-                    ImGui::EndMenu();
-                }
-                ImGui::EndMainMenuBar();
-            }
         }
 	private:
         static constexpr const char* modelNames[] = {"Kuramoto"};
@@ -324,7 +372,360 @@ class AppState
         inline void DrawProgressBar();
         inline void DrawPlotPanelContent();
         inline void RenderChrono();
+        inline bool DrawSidebarIcon(int tabIndex, const char* icon, const char* title);
+        inline bool DrawActivityButton(const char* icon, const char* title, bool active);
+        inline void DrawActivityBar();
+        inline void DrawDrawerContent();
+        inline void DrawRunPanelContent();
+        inline void DrawSavePanelContent();
+        inline void SaveSimulationData(const std::filesystem::path& outputDir);
+        inline std::filesystem::path BuildDefaultOutputPath();
+        inline MathEngine::IO::WriteOptions MakeWriteOptions(const std::filesystem::path& filePath, std::string_view header = {});
+        inline bool ArtifactApplies(const SaveArtifact& artifact) const;
+        inline bool WriteArtifactData(SaveArtifactKind kind, const std::filesystem::path& filePath);
 };
+
+inline bool AppState::DrawActivityButton(const char* icon, const char* title, bool active)
+{
+    const float iconSize = 40.0f;
+    bool clicked = false;
+
+    ImGui::PushFont(g_FONTs.icons);
+    // Flat, borderless activity-bar button (seamless look).
+    ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.0f, 1.0f, 1.0f, 0.10f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(1.0f, 1.0f, 1.0f, 0.16f));
+    ImGui::PushStyleColor(ImGuiCol_Text, active ? ImVec4(1.00f, 0.39f, 0.80f, 1.0f)
+                                                : ImVec4(0.72f, 0.72f, 0.72f, 1.0f));
+
+    if (ImGui::Button(icon, ImVec2(-1.0f, iconSize)))
+    {
+        clicked = true;
+    }
+
+    if (active)
+    {
+        const ImVec2 min = ImGui::GetItemRectMin();
+        const ImVec2 max = ImGui::GetItemRectMax();
+        ImGui::GetWindowDrawList()->AddRectFilled(
+            ImVec2(min.x, min.y + 10.0f),
+            ImVec2(min.x + 3.0f, max.y - 10.0f),
+            IM_COL32(255, 100, 205, 255));
+    }
+
+    ImGui::PopStyleColor(4);
+    ImGui::PopFont();
+
+    if (ImGui::IsItemHovered())
+    {
+        ImGui::SetTooltip("%s", title);
+    }
+    return clicked;
+}
+
+inline bool AppState::DrawSidebarIcon(int tabIndex, const char* icon, const char* title)
+{
+    return DrawActivityButton(icon, title, activeSidebarTab == tabIndex);
+}
+
+inline void AppState::DrawActivityBar()
+{
+    ImGui::Dummy(ImVec2(0.0f, 6.0f));
+    for (int i = 0; i < SidebarTabCount; ++i)
+    {
+        if (DrawSidebarIcon(i, SidebarTabs[i].icon, SidebarTabs[i].title))
+        {
+            activeSidebarTab = (activeSidebarTab == i) ? -1 : i;
+        }
+    }
+
+    // Bottom section: Options + Help (moved here from the old top menu bar).
+    const float bottomHeight = 2.0f * 40.0f + ImGui::GetStyle().ItemSpacing.y + 8.0f;
+    ImGui::SetCursorPosY(ImGui::GetWindowHeight() - bottomHeight);
+
+    if (DrawActivityButton(ICON_FA_GEAR, "Options", false))
+    {
+        ImGui::OpenPopup("##ActivityOptionsMenu");
+    }
+    const ImVec2 gearMin = ImGui::GetItemRectMin();
+    ImGui::SetNextWindowPos(
+        ImVec2(ImGui::GetWindowPos().x + SidebarRailWidth + 4.0f, ImGui::GetWindowPos().y + gearMin.y),
+        ImGuiCond_Always);
+    if (ImGui::BeginPopup("##ActivityOptionsMenu"))
+    {
+        DrawFontMenu();
+        ImGui::Separator();
+        if (ImGui::MenuItem("Show ImGui Style Editor", nullptr, &showStyleEditor)) {}
+        ImGui::EndPopup();
+    }
+
+    if (DrawActivityButton(ICON_FA_CIRCLE_QUESTION, "Help", false))
+    {
+        showAbout = true;
+    }
+}
+
+inline void AppState::DrawDrawerContent()
+{
+    switch (static_cast<SidebarTab>(activeSidebarTab))
+    {
+        case SidebarTab::Model:    DrawModelPanelContent();               break;
+        case SidebarTab::Topology: DrawTopologyPanelContent();            break;
+        case SidebarTab::Initials: DrawInitialsPanelContent();            break;
+        case SidebarTab::Solver:   DrawODESolverParametersPanelContent(); break;
+        case SidebarTab::Plot:     DrawPlotPanelContent();                break;
+        case SidebarTab::Run:      DrawRunPanelContent();                 break;
+        case SidebarTab::Save:     DrawSavePanelContent();                break;
+        default: break;
+    }
+}
+
+inline void AppState::DrawRunPanelContent()
+{
+    DrawProgressBar();
+    ImGui::Spacing();
+    RenderChrono();
+    ImGui::Spacing();
+    bool running = isSimRunning.load();
+    if (running) ImGui::BeginDisabled();
+    if (ImGui::Button(running ? "Running..." : "Begin Simulation", ImVec2(-1, 0))) StartSimulation();
+    if (running) ImGui::EndDisabled();
+}
+
+inline MathEngine::IO::WriteOptions AppState::MakeWriteOptions(const std::filesystem::path& filePath, std::string_view header)
+{
+    MathEngine::IO::FPFormat fmt = MathEngine::IO::FPFormat::Scientific;
+    switch (saveParams.fpFormatIndex)
+    {
+        case 1: fmt = MathEngine::IO::FPFormat::Fixed; break;
+        case 2: fmt = MathEngine::IO::FPFormat::Default; break;
+        default: fmt = MathEngine::IO::FPFormat::Scientific; break;
+    }
+    MathEngine::IO::Alignment align = MathEngine::IO::Alignment::Center;
+    switch (saveParams.alignmentIndex)
+    {
+        case 0: align = MathEngine::IO::Alignment::Left; break;
+        case 1: align = MathEngine::IO::Alignment::Right; break;
+        case 3: align = MathEngine::IO::Alignment::None; break;
+        default: align = MathEngine::IO::Alignment::Center; break;
+    }
+    return MathEngine::IO::WriteOptions{
+        .path      = filePath,
+        .separator = ",",
+        .header    = header,
+        .comment   = {},
+        .footer    = {},
+        .colWidth  = static_cast<size_t>(std::max(0, saveParams.colWidth)),
+        .precision = saveParams.precision,
+        .format    = fmt,
+        .alignment = align,
+        .append    = saveParams.append,
+        .binary    = saveParams.binary
+    };
+}
+
+inline std::filesystem::path AppState::BuildDefaultOutputPath()
+{
+    std::string kType = "General";
+    switch (modelParams.kuramotoType)
+    {
+        case KuramotoType::KuramotoSparse:  kType = "Sparse";  break;
+        case KuramotoType::KuramotoSpecial: kType = "Special"; break;
+        default: kType = "General"; break;
+    }
+
+    std::string topo = "None";
+    if (modelParams.kuramotoType == KuramotoType::KuramotoSpecial)
+    {
+        topo = "Modular";
+    }
+    else
+    {
+        switch (adjParams.adjState)
+        {
+            case MathEngine::NetworkTopology::Uniform:                    topo = "Uniform"; break;
+            case MathEngine::NetworkTopology::UniformSymmetric:           topo = "UniformSymmetric"; break;
+            case MathEngine::NetworkTopology::ErdosRenyi:                 topo = "ErdosRenyi"; break;
+            case MathEngine::NetworkTopology::ErdosRenyiUniform:          topo = "ErdosRenyiUniform"; break;
+            case MathEngine::NetworkTopology::ErdosRenyiSymmetric:        topo = "ErdosRenyiSymmetric"; break;
+            case MathEngine::NetworkTopology::ErdosRenyiSymmetricUniform: topo = "ErdosRenyiSymmetricUniform"; break;
+            case MathEngine::NetworkTopology::SmallWorld:                 topo = "SmallWorld"; break;
+            case MathEngine::NetworkTopology::SmallWorldDirected:         topo = "SmallWorldDirected"; break;
+            case MathEngine::NetworkTopology::Modular:                    topo = "Modular"; break;
+            case MathEngine::NetworkTopology::Hierarchical:               topo = "Hierarchical"; break;
+            default: topo = "None"; break;
+        }
+    }
+
+    std::string solver = "RK4";
+    switch (solverParams.solverMethod)
+    {
+        case SolverMethod::RK1:         solver = "RK1"; break;
+        case SolverMethod::RK2:         solver = "RK2"; break;
+        case SolverMethod::RK3:         solver = "RK3"; break;
+        case SolverMethod::RK4:         solver = "RK4"; break;
+        case SolverMethod::RK4_38:      solver = "RK438"; break;
+        case SolverMethod::RK4_Gill:    solver = "RK4Gill"; break;
+        case SolverMethod::RK4_Ralston: solver = "RK4Ralston"; break;
+        case SolverMethod::AB:          solver = "AB"; break;
+        case SolverMethod::ABM:         solver = "ABM"; break;
+        default: solver = "RK4"; break;
+    }
+
+    const std::string folderName = "Kuramoto-" + kType + "-" + topo + "-N" + std::to_string(modelParams.N) + "-" + solver;
+    return std::filesystem::path(saveParams.outputDir) / folderName;
+}
+
+inline bool AppState::ArtifactApplies(const SaveArtifact& artifact) const
+{
+    return artifact.universal || artifact.model == modelParams.modelType;
+}
+
+inline bool AppState::WriteArtifactData(SaveArtifactKind kind, const std::filesystem::path& filePath)
+{
+    switch (kind)
+    {
+        case SaveArtifactKind::Adjacency:
+            if (adj.empty()) return false;
+            MathEngine::IO::WriteMatrix(adj, MakeWriteOptions(filePath, "Adjacency Matrix"));
+            return true;
+        case SaveArtifactKind::InitialPhases:
+            if (modelParams.iPhase.empty()) return false;
+            MathEngine::IO::WriteVector(std::span<const double>(modelParams.iPhase), MakeWriteOptions(filePath, "Initial Phases"));
+            return true;
+        case SaveArtifactKind::IntrinsicFrequencies:
+            if (modelParams.iFrqnc.empty()) return false;
+            MathEngine::IO::WriteVector(std::span<const double>(modelParams.iFrqnc), MakeWriteOptions(filePath, "Intrinsic Frequencies"));
+            return true;
+        case SaveArtifactKind::Solution:
+            if (solverParams.solverResults.solution.empty()) return false;
+            MathEngine::IO::WriteMatrix(solverParams.solverResults.solution, MakeWriteOptions(filePath, "Solution (rows = time steps, cols = state)"));
+            return true;
+        case SaveArtifactKind::TimePoints:
+            if (solverParams.solverResults.timePoints.empty()) return false;
+            MathEngine::IO::WriteVector(std::span<const double>(solverParams.solverResults.timePoints), MakeWriteOptions(filePath, "Time Points"));
+            return true;
+        case SaveArtifactKind::OrderParameter:
+        {
+            MathEngine::dMatrix op;
+            std::string_view header;
+            {
+                std::lock_guard<std::mutex> lock(plotParams.plotMutex);
+                if (plotParams.plotYModules.Rows() > 0 && plotParams.plotYModules.Cols() > 0)
+                {
+                    // Per-module order parameter (modular / hierarchical systems).
+                    const size_t nModules = plotParams.plotYModules.Rows();
+                    const size_t nTime = std::min(plotParams.plotX.size(), plotParams.plotYModules.Cols());
+                    if (nTime > 0)
+                    {
+                        op = MathEngine::dMatrix(nTime, nModules + 1);
+                        for (size_t t = 0; t < nTime; ++t)
+                        {
+                            op[t, 0] = plotParams.plotX[t];
+                            for (size_t m = 0; m < nModules; ++m)
+                                op[t, m + 1] = plotParams.plotYModules[m, t];
+                        }
+                        header = "Per-module order parameter (time, module 1..M)";
+                    }
+                }
+                else
+                {
+                    // Global order parameter.
+                    const size_t n = std::min(plotParams.plotX.size(), plotParams.plotY.size());
+                    if (n > 0)
+                    {
+                        op = MathEngine::dMatrix(n, 2);
+                        for (size_t i = 0; i < n; ++i)
+                        {
+                            op[i, 0] = plotParams.plotX[i];
+                            op[i, 1] = plotParams.plotY[i];
+                        }
+                        header = "Order parameter (time, rho)";
+                    }
+                }
+            }
+            if (op.empty()) return false;
+            MathEngine::IO::WriteMatrix(op, MakeWriteOptions(filePath, header));
+            return true;
+        }
+        default: return false;
+    }
+}
+
+inline void AppState::SaveSimulationData(const std::filesystem::path& outputDir)
+{
+    try
+    {
+        std::filesystem::create_directories(outputDir);
+        size_t written = 0;
+
+        for (int i = 0; i < SaveArtifactCount; ++i)
+        {
+            const SaveArtifact& artifact = SaveArtifacts[i];
+            if (!ArtifactApplies(artifact)) continue;
+            if (!(saveParams.*(artifact.toggle))) continue;
+
+            if (WriteArtifactData(static_cast<SaveArtifactKind>(i), outputDir / artifact.subDir / artifact.fileName))
+                ++written;
+        }
+
+        saveStatus = "Saved " + std::to_string(written) + " file(s) to: " + outputDir.string();
+    }
+    catch (const std::exception& e)
+    {
+        saveStatus = std::string("Save failed: ") + e.what();
+    }
+}
+
+inline void AppState::DrawSavePanelContent()
+{
+    ImGui::SeparatorText("Save Simulation Data");
+
+    if (ImGui::Button("Save (Default Layout)", ImVec2(-1, 0)))
+    {
+        SaveSimulationData(BuildDefaultOutputPath());
+    }
+
+    if (!saveStatus.empty())
+    {
+        ImGui::Spacing();
+        ImGui::TextWrapped("%s", saveStatus.c_str());
+        ImGui::Spacing();
+    }
+
+    if (ImGui::CollapsingHeader("Advanced Save Options"))
+    {
+        ImGui::InputText("Output Directory", saveParams.outputDir, sizeof(saveParams.outputDir));
+
+        ImGui::Spacing();
+        ImGui::SeparatorText("What to Save");
+        for (int i = 0; i < SaveArtifactCount; ++i)
+        {
+            const SaveArtifact& artifact = SaveArtifacts[i];
+            if (!ArtifactApplies(artifact)) continue;
+            ImGui::Checkbox(artifact.label, &(saveParams.*(artifact.toggle)));
+        }
+
+        ImGui::Spacing();
+        ImGui::SeparatorText("Format");
+        static constexpr const char* fpFormatNames[] = { "Scientific", "Fixed", "Default" };
+        ImGui::Combo("Number Format", &saveParams.fpFormatIndex, fpFormatNames, 3);
+        static constexpr const char* alignNames[] = { "Left", "Right", "Center", "None" };
+        ImGui::Combo("Alignment", &saveParams.alignmentIndex, alignNames, 4);
+        if (ImGui::InputInt("Precision", &saveParams.precision, 1, 1))
+            saveParams.precision = std::clamp(saveParams.precision, 0, 17);
+        if (ImGui::InputInt("Column Width", &saveParams.colWidth, 1, 1))
+            saveParams.colWidth = std::clamp(saveParams.colWidth, 0, 100);
+        ImGui::Checkbox("Binary", &saveParams.binary);
+        ImGui::Checkbox("Append", &saveParams.append);
+
+        ImGui::Spacing();
+        if (ImGui::Button("Save (Custom Layout)", ImVec2(-1, 0)))
+        {
+            SaveSimulationData(std::filesystem::path(saveParams.outputDir));
+        }
+    }
+}
 
 inline void AppState::DrawModelPanelContent()
 {
@@ -679,11 +1080,13 @@ inline void AppState::DrawInitialsPanelContent()
             else if (modelParams.kuramotoType == KuramotoType::KuramotoSpecial)
             {
                 MathEngine::KuramotoModularParams kParams;
-                kParams.intra_K = modelParams.K;
-                kParams.inter_K = modelParams.Q;
-                kParams.N = modelParams.N;
-                kParams.alpha = modelParams.alpha;
-                kParams.omega = modelParams.iFrqnc;
+                kParams.intra_K     = modelParams.K;
+                kParams.inter_K     = modelParams.Q;
+                kParams.N           = modelParams.N;
+                kParams.alpha       = modelParams.alpha;
+                kParams.omega       = modelParams.iFrqnc;
+                kParams.module_size = modelParams.sModules;
+                kParams.num_modules = modelParams.nModules;
                 solverParams.solverParams.derivative = MathEngine::kuramoto_special_modular_wrapper(kParams);
             }
         }
@@ -1022,7 +1425,7 @@ inline void AppState::StartSimulation()
         plotParams.plotY.reserve(plotExpectedSize);
         plotParams.plotXTrail.clear();
         plotParams.plotYTrail.clear();
-        plotParams.plotYModules = MathEngine::dMatrix(MathEngine::Vec<double>(modelParams.nModules,{}));
+        plotParams.plotYModules = MathEngine::dMatrix(modelParams.nModules, 0);
         plotParams.offset = 0;
     }
     int stride = plotParams.Stride;
@@ -1236,7 +1639,7 @@ inline void AppState::DrawPlotWindow()
             if (ImGui::Begin("Order Parameter (Modules)##mocules",&plotParams.showPlotThird))
             {
                 ImVec2 availableSpace = ImGui::GetContentRegionAvail();      // Set ImVec(-1,-1) to fill the whole window.
-                if (plotParams.plotYModules.empty() || plotParams.plotYModules.size()!=modelParams.nModules)
+                if (plotParams.plotYModules.empty() || plotParams.plotYModules.Rows()!=modelParams.nModules)
                 {
                     if (ImPlot::BeginPlot("(\U0001D70C-t) Plot (empty modules)##modules",availableSpace))
                     {

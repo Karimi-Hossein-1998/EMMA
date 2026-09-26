@@ -25,7 +25,7 @@ namespace MathEngine
 { // MathEngine namespace
 // -----------------------------------------------------------------------------
 // Constant expression for pi
-static constexpr const std::float64_t PI        = 3.14159265358979323846;
+static constexpr const double PI                = 3.14159265358979323846;
 static constexpr const std::uint8_t   max_order = 10;
 
 // -----------------------------------------------------------------------------
