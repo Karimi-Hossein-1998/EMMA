@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <initializer_list>
 #include <iterator>
-#include <print>
 #include <ranges>
 #include <vector>
 #include <string>
@@ -21,6 +20,27 @@
 #include <span>
 #include <cmath>
 #include <complex>
+
+// ---- Emscripten compatibility ---------------------------------------------
+// Emscripten's libc++ (WebAssembly) has no <stdfloat> extended floating types,
+// no unsequenced/parallel STL execution policies, and (on some toolchains) no
+// <print>. Provide safe fallbacks so the same code builds natively and on the
+// web. (std::float64_t is intentionally unused here - double is used instead.)
+#if defined(__EMSCRIPTEN__)
+#  include <format>
+#  include <iostream>
+#  define MATH_PRINT(...)    (::std::cout << ::std::format(__VA_ARGS__))
+#  define MATH_PRINTLN(...)  (::std::cout << ::std::format(__VA_ARGS__) << '\n')
+#else
+#  include <print>
+#  include <execution>
+#  if __has_include(<stdfloat>)
+#    include <stdfloat>
+#    define MATH_HAS_STDFLOAT 1
+#  endif
+#  define MATH_PRINT(...)    ::std::print(__VA_ARGS__)
+#  define MATH_PRINTLN(...)  ::std::println(__VA_ARGS__)
+#endif
 
 namespace MathEngine
 { // namespace MathEngine
@@ -62,10 +82,6 @@ inline std::uint64_t wrap_index(std::int64_t i,std::uint64_t nIndex)
 }
 
 
-#if __has_include(<stdfloat>)
-#  include <stdfloat>
-#endif
-
 template <typename T>
 std::string get_type_name()
 {
@@ -81,15 +97,15 @@ std::string get_type_name()
 		else if constexpr (std::same_as<T, double>)                 return "double";
 		else if constexpr (std::same_as<T, long double>)            return "long double";
 
-		// C++23 Extended Floating-Point Types
-		#if HAS_STDFLOAT
+		// C++23 Extended Floating-Point Types (unavailable under Emscripten)
+		#if defined(MATH_HAS_STDFLOAT)
 		else if constexpr (std::same_as<T, std::float16_t>)         return "std::float16_t";
 		else if constexpr (std::same_as<T, std::bfloat16_t>)        return "std::bfloat16_t";
 		else if constexpr (std::same_as<T, std::float32_t>)         return "std::float32_t";
-		else if constexpr (std::same_as<T, std::float64_t>)         return "std::float64_t";
 		else if constexpr (std::same_as<T, std::float128_t>)        return "std::float128_t";
 		#endif
 
+		// GCC extended floating types (not clang/Emscripten)
 		#if defined(__GNUC__) && !defined(__EMSCRIPTEN__)
 		else if constexpr (std::same_as<T,_Float32>)                return "std::float32";
 		else if constexpr (std::same_as<T,_Float64>)                return "std::float64";
@@ -148,6 +164,10 @@ public:
 		if (step==0 || (step>0 && stop<=start) || (step<0 && stop>=start)) size = 0;
 		else
 		{
+			double diff = static_cast<double>(stop-start); double dStep = static_cast<double>(step);
+			double divided = diff/dStep;
+			std::uint64_t newSize = static_cast<std::uint64_t>(divided);
+			double eps=std::max<double>(1e-14,divided*std::numeric_limits<double>::epsilon()*10.0);
 			double diff = static_cast<double>(stop-start); 
 			double dStep = static_cast<double>(step);
 			double divided = diff/dStep;

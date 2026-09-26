@@ -113,31 +113,31 @@ class LTMatrix
 template <Number T>
 inline void LTMatrix<T>::printm(std::uint16_t width, std::uint16_t accuracy) const
 {
-	std::print("LTMatrix ({}), Shape: ({}, {})\n",name_of_the_type,nDim,nDim);
+	MATH_PRINT("LTMatrix ({}), Shape: ({}, {})\n",name_of_the_type,nDim,nDim);
 	if (nDim==0 || data.empty()) return;
-	std::print("{{");
+	MATH_PRINT("{{");
 	if constexpr (std::is_integral_v<T>)
 	{
 		for (size_t r=0; r<nDim; ++r)
 		{
-			r==0?std::print(" {{"):std::print("  {{");
+			r==0?MATH_PRINT(" {{"):MATH_PRINT("  {{");
 			for (size_t c=0; c<nDim-1; ++c)
 			{
-				std::print(" {0:^{1}d},",r<c?T{}:data[((r*(r+1))>>1)+c],width);
+				MATH_PRINT(" {0:^{1}d},",r<c?T{}:data[((r*(r+1))>>1)+c],width);
 			}
-			(r==(nDim-1))?std::print(" {0:^{1}d} }} }}\n",data[data.size()-1],width):std::print(" {0:^{1}d}}},\n",T{},width);
+			(r==(nDim-1))?MATH_PRINT(" {0:^{1}d} }} }}\n",data[data.size()-1],width):MATH_PRINT(" {0:^{1}d}}},\n",T{},width);
 		}
 	}
 	else
 	{
 		for (size_t r=0; r<nDim; ++r)
 		{
-			r==0?std::print(" {{"):std::print("  {{");
+			r==0?MATH_PRINT(" {{"):MATH_PRINT("  {{");
 			for (size_t c=0; c<nDim-1; ++c)
 			{
-				std::print(" {0:^{1}.{2}g},",r<c?T{}:data[((r*(r+1))>>1)+c],width,accuracy);
+				MATH_PRINT(" {0:^{1}.{2}g},",r<c?T{}:data[((r*(r+1))>>1)+c],width,accuracy);
 			}
-			(r==(nDim-1))?std::print(" {0:^{1}.{2}g} }} }}\n",data[data.size()-1],width,accuracy):std::print(" {0:^{1}.{2}g} }},\n",T{},width,accuracy);
+			(r==(nDim-1))?MATH_PRINT(" {0:^{1}.{2}g} }} }}\n",data[data.size()-1],width,accuracy):MATH_PRINT(" {0:^{1}.{2}g} }},\n",T{},width,accuracy);
 		}
 	}
 }
@@ -165,7 +165,7 @@ inline LTMatrix<T> MatMul(const LTMatrix<T>& l1, const LTMatrix<T>& l2, bool For
 		}
 		else
 		{
-			std::println("Dimension mismatch... Quitting!");
+			MATH_PRINTLN("Dimension mismatch... Quitting!");
 			return result;
 		}
 	}

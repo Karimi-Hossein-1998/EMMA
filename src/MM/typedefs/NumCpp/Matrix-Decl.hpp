@@ -4,7 +4,7 @@
 namespace MathEngine
 { // namespace MathEngine
 // Matrix (General Matrix Class)
-template <Number T=std::float64_t>
+template <Number T=double>
 class Matrix
 {
     using value_type = T;
@@ -489,15 +489,23 @@ class Matrix
         inline Matrix& ApplyFunc(Func&& f, bool parallel=false)
         {
             if (nRows==0 || nCols==0) return *this;
+#if defined(__EMSCRIPTEN__)
+            std::transform(data.begin(),data.end(),data.begin(),std::forward<Func>(f)); return *this;
+#else
             if (!parallel) {std::transform(std::execution::unseq,data.begin(),data.end(),data.begin(),std::forward<Func>(f)); return *this;}
             else {std::transform(std::execution::par_unseq,data.begin(),data.end(),data.begin(),std::forward<Func>(f)); return *this;}
+#endif
         }
 		template <typename Func>
         inline friend Matrix<T> ApplyFunc(const Matrix<T>& m, Func&& f, bool parallel=false)
         {
             Matrix<T> result(m.nRows,m.nCols); if (m.nRows==0 || m.nCols==0) return result;
+#if defined(__EMSCRIPTEN__)
+            std::transform(m.data.cbegin(),m.data.cend(),result.data.begin(),std::forward<Func>(f)); return result;
+#else
             if (!parallel) {std::transform(std::execution::unseq,m.data.cbegin(),m.data.cend(),result.data.begin(),std::forward<Func>(f)); return result;}
             else {std::transform(std::execution::par_unseq,m.data.cbegin(),m.data.cend(),result.data.begin(),std::forward<Func>(f)); return result;}
+#endif
         }
         template <typename Func>
         inline friend Matrix<T> ApplyFunc(Matrix<T>&& m, Func&& f, bool parallel = false) {return m.ApplyFunc(f,parallel);}
@@ -875,32 +883,32 @@ inline Matrix<T> reshape(Matrix<T>&& m, std::int64_t r, std::int64_t c) {return 
 template <Number T>
 inline void Matrix<T>::printm(std::uint16_t width, std::uint16_t accuracy)
 {
-    std::print("Matrix ({}), Shape: ({}, {})\n",name_of_the_type,nRows,nCols);
+    MATH_PRINT("Matrix ({}), Shape: ({}, {})\n",name_of_the_type,nRows,nCols);
     if (nRows==0 || nCols==0) return;
-    if (data.empty()) {std::print("{}","{}\n"); return;}
-    std::print("{{ ");
+    if (data.empty()) {MATH_PRINT("{}","{}\n"); return;}
+    MATH_PRINT("{{ ");
     if constexpr (std::is_integral_v<T>)
     {
         for (size_t r=0; r<nRows; ++r)
         {
-            r==0?std::print("{{"):std::print("  {{");
+            r==0?MATH_PRINT("{{"):MATH_PRINT("  {{");
             for (size_t c=0; c<nCols-1; ++c)
             {
-                std::print(" {0:^{1}d},",data[r*nCols+c],width);
+                MATH_PRINT(" {0:^{1}d},",data[r*nCols+c],width);
             }
-            (r==(nRows-1))?std::print(" {0:^{1}d}}} }}\n",data[r*nCols+nCols-1],width):std::print(" {0:^{1}d}}},\n",data[r*nCols+nCols-1],width);
+            (r==(nRows-1))?MATH_PRINT(" {0:^{1}d}}} }}\n",data[r*nCols+nCols-1],width):MATH_PRINT(" {0:^{1}d}}},\n",data[r*nCols+nCols-1],width);
         }
     }
     else
     {
         for (size_t r=0; r<nRows; ++r)
         {
-            r==0?std::print("{{"):std::print("  {{");
+            r==0?MATH_PRINT("{{"):MATH_PRINT("  {{");
             for (size_t c=0; c<nCols-1; ++c)
             {
-                std::print(" {0:^{1}.{2}g},",data[r*nCols+c],width,accuracy);
+                MATH_PRINT(" {0:^{1}.{2}g},",data[r*nCols+c],width,accuracy);
             }
-            (r==(nRows-1))?std::print(" {0:^{1}.{2}g}}} }}\n",data[r*nCols+nCols-1],width,accuracy):std::print(" {0:^{1}.{2}g}}},\n",data[r*nCols+nCols-1],width,accuracy);
+            (r==(nRows-1))?MATH_PRINT(" {0:^{1}.{2}g}}} }}\n",data[r*nCols+nCols-1],width,accuracy):MATH_PRINT(" {0:^{1}.{2}g}}},\n",data[r*nCols+nCols-1],width,accuracy);
         }
     }
 }
@@ -908,7 +916,7 @@ inline void Matrix<T>::printm(std::uint16_t width, std::uint16_t accuracy)
 template <Number T>
 inline const T Matrix<T>::Trace() const noexcept
 {
-	T result{}; if (nRows!=nCols) {std::println("Matrix is not square!"); return result;}
+	T result{}; if (nRows!=nCols) {MATH_PRINTLN("Matrix is not square!"); return result;}
 	for (std::uint64_t i{}; i<nCols; ++i) result += data[i*nCols+i]; return result;
 }
 
@@ -938,7 +946,7 @@ inline Matrix<T> MatMul(const Matrix<T>& m1, const Matrix<U>& m2, bool ForceMult
         }
         else
         {
-            std::println("Dimension mismatch {} != {}...\nReturning a matrix of zeros of shape ({},{})",mid,mid2,rows,cols);
+            MATH_PRINTLN("Dimension mismatch {} != {}...\nReturning a matrix of zeros of shape ({},{})",mid,mid2,rows,cols);
             return result;
         }
     }

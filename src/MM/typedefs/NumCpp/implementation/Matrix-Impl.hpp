@@ -28,8 +28,8 @@ template <FPNumber T>
 inline void GaussJordanInPlace(Matrix<T>& SystemMatrix, Matrix<T>& RHSMatrix)
 {
 	const std::uint64_t NumEqs(SystemMatrix.Rows()); const std::uint64_t NumUnKnowns(RHSMatrix.Rows()); const std::uint64_t NumRhs(RHSMatrix.Cols());
-	if (NumEqs!=SystemMatrix.Cols()) {std::print("Not a standard problem! Number of Eqs ({}) is not equal to number of Unknowns ({})!\nTherefore quitting...\n",NumEqs,SystemMatrix.Cols()); return;}
-	if (NumEqs!=NumUnKnowns) {std::print("Not a standard problem! Number of Unknowns ({}) is not equal to number of Eqs ({})!\nTherefore quitting...\n",NumUnKnowns,NumEqs); return;}
+	if (NumEqs!=SystemMatrix.Cols()) {MATH_PRINT("Not a standard problem! Number of Eqs ({}) is not equal to number of Unknowns ({})!\nTherefore quitting...\n",NumEqs,SystemMatrix.Cols()); return;}
+	if (NumEqs!=NumUnKnowns) {MATH_PRINT("Not a standard problem! Number of Unknowns ({}) is not equal to number of Eqs ({})!\nTherefore quitting...\n",NumUnKnowns,NumEqs); return;}
 
 	// Counting pivots
 	std::vector<std::uint32_t> is_pivoted(NumEqs,0);
@@ -49,7 +49,7 @@ inline void GaussJordanInPlace(Matrix<T>& SystemMatrix, Matrix<T>& RHSMatrix)
 				{
 					if (is_pivoted[c]==0)
 					{
-						std::float64_t abs_rc = std::abs(SystemMatrix[r][c]);
+						double abs_rc = std::abs(SystemMatrix[r][c]);
 						if (abs_rc>max_value)
 						{
 							max_value = abs_rc; pivot_row = r; pivot_col = c;
@@ -66,7 +66,7 @@ inline void GaussJordanInPlace(Matrix<T>& SystemMatrix, Matrix<T>& RHSMatrix)
 		}
 		row_pivot_indices[step] = pivot_row; col_pivot_indices[step] = pivot_col;
 		pivot_value = SystemMatrix[pivot_col,pivot_col];
-		if (std::abs(pivot_value)<=std::numeric_limits<T>::epsilon()) {std::println("Impossible to pivot... Quiting gracefully!"); return;}
+		if (std::abs(pivot_value)<=std::numeric_limits<T>::epsilon()) {MATH_PRINTLN("Impossible to pivot... Quiting gracefully!"); return;}
 		pivot_reciprocal = static_cast<T>(1.0/pivot_value);
 		for (std::uint64_t c{}; c<NumEqs; ++c) SystemMatrix[pivot_col,c] *= pivot_reciprocal;
 		for (std::uint64_t c{}; c<NumRhs; ++c) RHSMatrix[pivot_col,c] *= pivot_reciprocal;
@@ -110,7 +110,7 @@ inline std::pair<Matrix<T>,Matrix<T>> LUDecomposeNormal(const Matrix<T>& SystemM
 {
 	std::uint64_t rows = SystemMatrix.Rows(); std::uint64_t cols = SystemMatrix.Cols();
 	Matrix<T> L(rows,cols); Matrix<T> U(rows,cols);
-	if (rows!=cols) {std::println("Matrix is not square... Gracefully quitting!"); return {L,U};}
+	if (rows!=cols) {MATH_PRINTLN("Matrix is not square... Gracefully quitting!"); return {L,U};}
 	// U[0,0] = SystemMatrix[0,0];
 	for (std::uint64_t i{}; i<rows; ++i) {U[0,i]=SystemMatrix[0,i]; L[i,0]=SystemMatrix[i,0]/U[0,0];}
 	for (std::uint64_t i{}; i<rows; ++i) L[i,i] = 1.0;
@@ -141,7 +141,7 @@ template <FPNumber T>
 inline void LUDecomposeInPlace(Matrix<T>& SystemMatrix)
 {
 	std::uint64_t rows = SystemMatrix.Rows(); std::uint64_t cols = SystemMatrix.Cols();
-	if (rows!=cols) {std::println("Matrix is not square... Gracefully quitting!"); return;}
+	if (rows!=cols) {MATH_PRINTLN("Matrix is not square... Gracefully quitting!"); return;}
 	for (std::uint64_t i{1}; i<rows; ++i) SystemMatrix[i,0]/=SystemMatrix[0,0];
 	for (std::uint64_t r{1}; r<rows; ++r)
 	{
@@ -168,7 +168,7 @@ inline Matrix<T> LUDecomposeCompact(const Matrix<T>& SystemMatrix)
 {
 	std::uint64_t rows = SystemMatrix.Rows(); std::uint64_t cols = SystemMatrix.Cols();
 	Matrix<T> LU(SystemMatrix);
-	if (rows!=cols) {std::println("Matrix is not square... Gracefully quitting!"); return LU;}
+	if (rows!=cols) {MATH_PRINTLN("Matrix is not square... Gracefully quitting!"); return LU;}
 	for (std::uint64_t i{1}; i<rows; ++i) LU[i,0]/=LU[0,0];
 	for (std::uint64_t r{1}; r<rows; ++r)
 	{
@@ -196,7 +196,7 @@ inline std::pair<LTMatrix<T>,UTMatrix<T>> LUDecompose(const Matrix<T>& SystemMat
 {
 	std::uint64_t rows = SystemMatrix.Rows(); std::uint64_t cols = SystemMatrix.Cols();
 	LTMatrix<T> L(rows); UTMatrix<T> U(cols);
-	if (rows!=cols) {std::println("Matrix is not square... Gracefully quitting!"); return {L,U};}
+	if (rows!=cols) {MATH_PRINTLN("Matrix is not square... Gracefully quitting!"); return {L,U};}
 	for (std::uint64_t i{}; i<rows; ++i) L[i,i] = 1.0;
 	// U[0,0] = SystemMatrix[0,0];
 	for (std::uint64_t i{}; i<rows; ++i) {U[0,i]=SystemMatrix[0,i]; L[i,0]=SystemMatrix[i,0]/U[0,0];}
@@ -247,7 +247,7 @@ template <FPNumber T>
 inline void LUSolveInPlace(const Matrix<T>& L, const Matrix<T>& U, Matrix<T>& RHSMatrix)
 {
 	std::uint64_t NumEqs = L.Rows(); std::uint64_t NumRhs = RHSMatrix.Cols(); std::uint64_t NumUnKnowns = RHSMatrix.Rows(); std::int64_t NumEqsMinus1 = NumEqs-1;
-	if (NumEqs != NumUnKnowns || NumEqs != L.Cols() || NumEqs != U.Rows() || NumEqs != U.Cols()) {std::println("Dimensions mismatched... Quitting!"); return;}
+	if (NumEqs != NumUnKnowns || NumEqs != L.Cols() || NumEqs != U.Rows() || NumEqs != U.Cols()) {MATH_PRINTLN("Dimensions mismatched... Quitting!"); return;}
 	for (std::uint64_t r{1}; r<NumEqs; ++r)
 		for (std::uint64_t c{}; c<r; ++c)
 			for (std::uint64_t i{}; i<NumRhs; ++i)
@@ -282,7 +282,7 @@ template <FPNumber T>
 inline void LUSolveInPlace(const LTMatrix<T>& L, const UTMatrix<T>& U, Matrix<T>& RHSMatrix)
 {
 	std::uint64_t NumEqs = L.Rows(); std::uint64_t NumRhs = RHSMatrix.Cols(); std::uint64_t NumUnKnowns = RHSMatrix.Rows(); std::int64_t NumEqsMinus1 = NumEqs-1;
-	if (NumEqs != NumUnKnowns || NumEqs != L.Cols() || NumEqs != U.Rows() || NumEqs != U.Cols()) {std::println("Dimensions mismatched... Quitting!"); return;}
+	if (NumEqs != NumUnKnowns || NumEqs != L.Cols() || NumEqs != U.Rows() || NumEqs != U.Cols()) {MATH_PRINTLN("Dimensions mismatched... Quitting!"); return;}
 	for (std::uint64_t r{1}; r<NumEqs; ++r)
 		for (std::uint64_t c{}; c<r; ++c)
 			for (std::uint64_t i{}; i<NumRhs; ++i)
@@ -317,7 +317,7 @@ template <FPNumber T>
 inline void LUSolveInPlace(const Matrix<T>& LU, Matrix<T>& RHSMatrix)
 {
 	std::uint64_t NumEqs = LU.Rows(); std::uint64_t NumRhs = RHSMatrix.Cols(); std::uint64_t NumUnKnowns = RHSMatrix.Rows(); std::int64_t NumEqsMinus1 = NumEqs-1;
-	if (NumEqs != NumUnKnowns || NumEqs != LU.Rows() || NumEqs != LU.Cols()) {std::println("Dimensions mismatched... Quitting!"); return;}
+	if (NumEqs != NumUnKnowns || NumEqs != LU.Rows() || NumEqs != LU.Cols()) {MATH_PRINTLN("Dimensions mismatched... Quitting!"); return;}
 	for (std::uint64_t r{1}; r<NumEqs; ++r)
 		for (std::uint64_t c{}; c<r; ++c)
 			for (std::uint64_t i{}; i<NumRhs; ++i)
@@ -365,7 +365,7 @@ inline Matrix<T> Matrix<T>::Inverse() const
 {
 	auto LU = LUDecomposeCompact(*this);
 	auto InverseThis(Matrix<T>::I(nRows));
-	if (nRows!=nCols) {std::println("Cannot inverse via L-U decomposition method! Returning Identity"); return InverseThis;}
+	if (nRows!=nCols) {MATH_PRINTLN("Cannot inverse via L-U decomposition method! Returning Identity"); return InverseThis;}
 	else
 	{
 		LUSolveInPlace(LU,InverseThis);
@@ -378,7 +378,7 @@ inline T Matrix<T>::Determinant() const
 {
 	auto LU = LUDecomposeCompact(*this);
 	T result{};
-	if (nRows!=nCols) {std::println("Cannot calculate... Quitting!"); return result;}
+	if (nRows!=nCols) {MATH_PRINTLN("Cannot calculate... Quitting!"); return result;}
 	else {for (std::uint64_t i{}; i<nRows; ++i) result += LU[i,i]; return result;}
 }
 
@@ -418,7 +418,7 @@ inline Matrix<T> MatMul(const LTMatrix<T>& L, const UTMatrix<T>& U, bool ForceMu
 		}
 		else
 		{
-			std::println("Dimension mismatch {} != {}...\nReturning a matrix of zeros of shape ({},{})",nside,nside2,nside,nside);
+			MATH_PRINTLN("Dimension mismatch {} != {}...\nReturning a matrix of zeros of shape ({},{})",nside,nside2,nside,nside);
 			return result;
 		}
 	}
@@ -464,7 +464,7 @@ inline Matrix<T> MatMul(const UTMatrix<T>& U, const LTMatrix<T>& L, bool ForceMu
 		}
 		else
 		{
-			std::println("Dimension mismatch {} != {}...\nReturning a matrix of zeros of shape ({},{})",nside,nside2,nside,nside);
+			MATH_PRINTLN("Dimension mismatch {} != {}...\nReturning a matrix of zeros of shape ({},{})",nside,nside2,nside,nside);
 			return result;
 		}
 	}
@@ -509,7 +509,7 @@ inline Matrix<T> MatMul(const Matrix<T>& m, const LTMatrix<T>& l, bool ForceMult
 		}
 		else
 		{
-			std::println("Dimension mismatch... Quitting!");
+			MATH_PRINTLN("Dimension mismatch... Quitting!");
 			return result;
 		}
 	}
@@ -553,7 +553,7 @@ inline Matrix<T> MatMul(const LTMatrix<T>& l, const Matrix<T>& m, bool ForceMult
 		}
 		else
 		{
-			std::println("Dimension mismatch... Quitting!");
+			MATH_PRINTLN("Dimension mismatch... Quitting!");
 			return result;
 		}
 	}
@@ -597,7 +597,7 @@ inline Matrix<T> MatMul(const Matrix<T>& m, const UTMatrix<T>& l, bool ForceMult
 		}
 		else
 		{
-			std::println("Dimension mismatch... Quitting!");
+			MATH_PRINTLN("Dimension mismatch... Quitting!");
 			return result;
 		}
 	}
@@ -641,7 +641,7 @@ inline Matrix<T> MatMul(const UTMatrix<T>& l, const Matrix<T>& m, bool ForceMult
 		}
 		else
 		{
-			std::println("Dimension mismatch... Quitting!");
+			MATH_PRINTLN("Dimension mismatch... Quitting!");
 			return result;
 		}
 	}

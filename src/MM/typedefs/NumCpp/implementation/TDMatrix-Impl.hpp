@@ -21,19 +21,19 @@ template <Number T>
 inline void TDSolveInPlace(const TDMatrix<T>& SystemMatrix, Matrix<T>& RHSMatrix)
 {
 	std::uint64_t NumEqs = SystemMatrix.Rows(); std::uint64_t NumRhs = RHSMatrix.Cols();
-	if (NumEqs!=RHSMatrix.Rows() || NumRhs==0) {std::println("Dimension mismatch... Quitting!"); return;}
+	if (NumEqs!=RHSMatrix.Rows() || NumRhs==0) {MATH_PRINTLN("Dimension mismatch... Quitting!"); return;}
 	if (NumEqs==0) return;
 	if (NumEqs==1) {for (std::uint64_t i{}; i<NumRhs; ++i) RHSMatrix[0,i] /= SystemMatrix[0,0]; return;}
 	const auto& lo = SystemMatrix.GetLo();
 	const auto& diag = SystemMatrix.GetDiag();
 	const auto& up = SystemMatrix.GetUp();
 	T denom = diag[0]; std::vector<T> c_buffer(NumEqs-1,T{});
-	if (denom==T{}) {std::println("Encountered ZERO pivot... Quitting!"); return;}
+	if (denom==T{}) {MATH_PRINTLN("Encountered ZERO pivot... Quitting!"); return;}
 	c_buffer[0] = up[0]/denom; for (std::uint64_t i{}; i<NumRhs; ++i) RHSMatrix[0,i] /= denom;
 	for (std::uint64_t i{1}; i<NumEqs; ++i)
 	{
 		denom = diag[i] - lo[i-1]*c_buffer[i-1];
-		if (denom==T{}) {std::println("Encountered ZERO pivot... Quitting!"); return;}
+		if (denom==T{}) {MATH_PRINTLN("Encountered ZERO pivot... Quitting!"); return;}
 		if (i<NumEqs-1) c_buffer[i] = up[i] / denom;
 		for (std::uint64_t j{}; j<NumRhs; ++j) RHSMatrix[i,j] = (RHSMatrix[i,j]-lo[i-1]*RHSMatrix[i-1,j]) / denom;
 	}

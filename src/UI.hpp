@@ -8,6 +8,9 @@
 #include "BNSCRegular.hpp"
 #include "CSRegular.hpp"
 #include "NSMR.hpp"
+// Icons (Font Awesome 6 Free Solid)
+#include "extras/IconsFontAwesome6.h"
+#include "extras/FA6FreeSolidFontData.h"
 
 struct AppFonts
 {
@@ -16,6 +19,7 @@ struct AppFonts
 	ImFont* bonanova = nullptr;
 	ImFont* brawler = nullptr;
 	ImFont* clearsans = nullptr;
+	ImFont* icons = nullptr;
 }g_FONTs;
 
 inline void ApplyCustomStyle()
@@ -159,6 +163,14 @@ inline void initUI(bool darkTheme)
         assets_fonts_ClearSans_Regular_ttf_len,
         18.0f,
         &config
+    );
+    static const ImWchar iconRanges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 };
+    g_FONTs.icons = io.Fonts->AddFontFromMemoryCompressedTTF(
+        (const void*)fa_solid_900_compressed_data,
+        (int)fa_solid_900_compressed_size,
+        18.0f,
+        &config,
+        iconRanges
     );
     ImFont* customFont = g_FONTs.NotoSansMath;
     if (customFont!=nullptr)
