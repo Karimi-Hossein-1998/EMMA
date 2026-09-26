@@ -7,6 +7,13 @@
 #include <vector>
 #include <string>
 #include <concepts>
+#include <execution>
+#if !defined(__EMSCRIPTEN__) && __has_include(<stdfloat>)
+#define HAS_STDFLOAT 1
+#include <stdfloat>
+#else
+#define HAS_STDFLOAT 0
+#endif
 #include <cstdint>
 #include <type_traits>
 #include <stdexcept>
@@ -161,6 +168,11 @@ public:
 			double divided = diff/dStep;
 			std::uint64_t newSize = static_cast<std::uint64_t>(divided);
 			double eps=std::max<double>(1e-14,divided*std::numeric_limits<double>::epsilon()*10.0);
+			double diff = static_cast<double>(stop-start); 
+			double dStep = static_cast<double>(step);
+			double divided = diff/dStep;
+			std::uint64_t newSize = static_cast<std::uint64_t>(divided);
+			double eps=std::max<double>(1e-14, divided*std::numeric_limits<double>::epsilon()*10.0);
 			size = (divided-static_cast<double>(newSize))>eps?newSize+1:newSize;
 		}
 	}
