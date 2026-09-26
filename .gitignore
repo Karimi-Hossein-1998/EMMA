@@ -7,6 +7,9 @@ android/
 android-*/
 *.o
 *.exe
+.so
+.dll
+.a
 
 # IDE / editor
 .vscode/
@@ -18,3 +21,12 @@ android-*/
 .DS_Store
 Thumbs.db
 compile_commands.json
+
+
+# Miscellany
+
+test
+test-dr/
+test.cpp
+
+
