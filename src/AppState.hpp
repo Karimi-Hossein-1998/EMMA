@@ -387,6 +387,7 @@ class AppState
         };
         inline void DrawModelPanelContent();
         inline void DrawTopologyPanelContent();
+        inline MathEngine::dMatrix GenerateOACouplingMatrix();
 		inline void DrawInitialsPanelContent();
 		inline void DrawODESolverParametersPanelContent();
 		inline void RenderModals();
@@ -815,14 +816,7 @@ inline void AppState::DrawModelPanelContent()
                 int C = static_cast<int>(modelParams.oaC);
                 if (ImGui::InputInt("Communities (C)", &C, 1, 5)) modelParams.oaC = static_cast<size_t>(std::max(1, C));
                 ImGui::TextDisabled("State dimension: %zu (interleaved Re/Im)", 2 * modelParams.oaC);
-                ImGui::InputDouble("K Intra", &modelParams.K, 0.0001, 0.01, "%.15g");
-                ImGui::InputDouble("K Inter", &modelParams.Q, 0.0001, 0.01, "%.15g");
-                if (ImGui::Button("Generate Coupling Matrix", ImVec2(-1, 0)))
-                {
-                    const size_t c = modelParams.oaC;
-                    modelParams.oaK = MathEngine::dMatrix(c, c, modelParams.Q);
-                    for (size_t i = 0; i < c; ++i) modelParams.oaK[i, i] = modelParams.K;
-                }
+                ImGui::TextDisabled("Coupling matrix (K) is generated in the Topology tab.");
                 break;
             }
         }
@@ -831,18 +825,22 @@ inline void AppState::DrawModelPanelContent()
 
 inline void AppState::DrawTopologyPanelContent()
 {
-    if (modelParams.modelType==ModelType::OttAntonsen)
+    const bool isOAGeneral = (modelParams.modelType==ModelType::OttAntonsen) && (modelParams.oaType==OAType::OAGeneral);
+
+    if (modelParams.modelType==ModelType::OttAntonsen && modelParams.oaType==OAType::OASingle)
     {
-        if (modelParams.oaType==OAType::OASingle)
-            ImGui::TextDisabled("Single community: all-to-all coupling (no topology needed).");
-        else
-            ImGui::TextDisabled("Multi-community coupling matrix is configured in the Model tab.");
+        ImGui::TextDisabled("Single community: all-to-all coupling (no topology needed).");
         return;
     }
+    if (!isOAGeneral && modelParams.kuramotoType == KuramotoType::KuramotoSpecial) return;
 
-    if (modelParams.kuramotoType == KuramotoType::KuramotoSpecial) return;
     ImGui::Spacing();
-    ImGui::SeparatorText("Network Topology");
+    ImGui::SeparatorText(isOAGeneral ? "Community Coupling (K)" : "Network Topology");
+    if (isOAGeneral)
+    {
+        ImGui::TextDisabled("C = %zu communities", modelParams.oaC);
+        ImGui::InputDouble("K Intra (diagonal)", &modelParams.K, 0.0001, 0.01, "%.15g");
+    }
     if (ImGui::Combo("Topology Type", &adjParams.adjSelectedIndex, adjNames, 10))
     {
         adjParams.adjState = static_cast<MathEngine::NetworkTopology>(adjParams.adjSelectedIndex);
@@ -871,104 +869,179 @@ inline void AppState::DrawTopologyPanelContent()
                 adjParams.meanDegree=std::max(0,adjParams.meanDegree);
             break;
         case MathEngine::NetworkTopology::Modular: {
-            int sM = static_cast<int>(adjParams.sModulesM);
-            int nM = static_cast<int>(adjParams.nModulesM);
-            if (ImGui::InputInt("Module Size", &sM, 1, 10)) adjParams.sModulesM = std::max(1, sM);
-            if (ImGui::InputInt("Number of Modules", &nM, 1, 10)) adjParams.nModulesM = std::max(1, nM);
-            ImGui::InputDouble("In Weight", &adjParams.weightIn, 0.0001, 0.01, "%.15g");
-            ImGui::InputDouble("Out Weight", &adjParams.weightOut, 0.0001, 0.01, "%.15g");
-            if (ImGui::InputDouble("Inner Prob", &adjParams.probIn, 0.0001, 0.01, "%.15g"))
-                adjParams.probIn = std::clamp(adjParams.probIn, 0.0, 1.0);
-            if (ImGui::InputDouble("Outer Prob", &adjParams.probOut, 0.0001, 0.01, "%.15g"))
-                adjParams.probOut = std::clamp(adjParams.probOut, 0.0, 1.0);
+            if (isOAGeneral)
+            {
+                int C = static_cast<int>(modelParams.oaC);
+                if (ImGui::InputInt("Communities (C)", &C, 1, 5)) modelParams.oaC = static_cast<size_t>(std::max(1, C));
+                ImGui::InputDouble("Out Weight", &adjParams.weightOut, 0.0001, 0.01, "%.15g");
+                if (ImGui::InputDouble("Outer Prob", &adjParams.probOut, 0.0001, 0.01, "%.15g"))
+                    adjParams.probOut = std::clamp(adjParams.probOut, 0.0, 1.0);
+            }
+            else
+            {
+                int sM = static_cast<int>(adjParams.sModulesM);
+                int nM = static_cast<int>(adjParams.nModulesM);
+                if (ImGui::InputInt("Module Size", &sM, 1, 10)) adjParams.sModulesM = std::max(1, sM);
+                if (ImGui::InputInt("Number of Modules", &nM, 1, 10)) adjParams.nModulesM = std::max(1, nM);
+                ImGui::InputDouble("In Weight", &adjParams.weightIn, 0.0001, 0.01, "%.15g");
+                ImGui::InputDouble("Out Weight", &adjParams.weightOut, 0.0001, 0.01, "%.15g");
+                if (ImGui::InputDouble("Inner Prob", &adjParams.probIn, 0.0001, 0.01, "%.15g"))
+                    adjParams.probIn = std::clamp(adjParams.probIn, 0.0, 1.0);
+                if (ImGui::InputDouble("Outer Prob", &adjParams.probOut, 0.0001, 0.01, "%.15g"))
+                    adjParams.probOut = std::clamp(adjParams.probOut, 0.0, 1.0);
+            }
             break;
         }
         case MathEngine::NetworkTopology::Hierarchical: {
-            int sB = static_cast<int>(adjParams.sModulesBase);
-            int nB = static_cast<int>(adjParams.nModulesBase);
-            int hL = static_cast<int>(adjParams.hLevels);
-            if (ImGui::InputInt("Module Size##h", &sB, 1, 10)) adjParams.sModulesBase = std::max(1, sB);
-            if (ImGui::InputInt("Number of Modules##h", &nB, 1, 10)) adjParams.nModulesBase = std::max(1, nB);
-            if (ImGui::InputInt("Hierarchy Levels##h", &hL, 1, 10)) adjParams.hLevels = std::max(1, hL);
-            ImGui::InputDouble("In Weight##h", &adjParams.weightIn, 0.0001, 0.01, "%.15g");
-            ImGui::InputDouble("Out Weight##h", &adjParams.weightOut, 0.0001, 0.01, "%.15g");
-            if (ImGui::InputDouble("Inner Prob##h", &adjParams.probIn, 0.0001, 0.01, "%.15g"))
-                adjParams.probIn = std::clamp(adjParams.probIn, 0.0, 1.0);
-            if (ImGui::InputDouble("Outer Prob##h", &adjParams.probOut, 0.0001, 0.01, "%.15g"))
-                adjParams.probOut = std::clamp(adjParams.probOut, 0.0, 1.0);
-            if (ImGui::InputDouble("Decay Ratio", &adjParams.decayRatio, 0.001, 0.1, "%.15g"))
-                adjParams.decayRatio = std::clamp(adjParams.decayRatio, 0.0, 1.0);
+            if (isOAGeneral)
+            {
+                int nB = static_cast<int>(adjParams.nModulesBase);
+                int hL = static_cast<int>(adjParams.hLevels);
+                if (ImGui::InputInt("Base Modules", &nB, 1, 10)) adjParams.nModulesBase = std::max(1, nB);
+                if (ImGui::InputInt("Hierarchy Levels", &hL, 1, 10)) adjParams.hLevels = std::max(1, hL);
+                ImGui::TextDisabled("C = %zu communities (derived)", adjParams.nModulesBase * (static_cast<size_t>(1) << (adjParams.hLevels - 1)));
+                ImGui::InputDouble("Out Weight", &adjParams.weightOut, 0.0001, 0.01, "%.15g");
+                if (ImGui::InputDouble("Outer Prob", &adjParams.probOut, 0.0001, 0.01, "%.15g"))
+                    adjParams.probOut = std::clamp(adjParams.probOut, 0.0, 1.0);
+                if (ImGui::InputDouble("Decay Ratio", &adjParams.decayRatio, 0.001, 0.1, "%.15g"))
+                    adjParams.decayRatio = std::clamp(adjParams.decayRatio, 0.0, 1.0);
+            }
+            else
+            {
+                int sB = static_cast<int>(adjParams.sModulesBase);
+                int nB = static_cast<int>(adjParams.nModulesBase);
+                int hL = static_cast<int>(adjParams.hLevels);
+                if (ImGui::InputInt("Module Size##h", &sB, 1, 10)) adjParams.sModulesBase = std::max(1, sB);
+                if (ImGui::InputInt("Number of Modules##h", &nB, 1, 10)) adjParams.nModulesBase = std::max(1, nB);
+                if (ImGui::InputInt("Hierarchy Levels##h", &hL, 1, 10)) adjParams.hLevels = std::max(1, hL);
+                ImGui::InputDouble("In Weight##h", &adjParams.weightIn, 0.0001, 0.01, "%.15g");
+                ImGui::InputDouble("Out Weight##h", &adjParams.weightOut, 0.0001, 0.01, "%.15g");
+                if (ImGui::InputDouble("Inner Prob##h", &adjParams.probIn, 0.0001, 0.01, "%.15g"))
+                    adjParams.probIn = std::clamp(adjParams.probIn, 0.0, 1.0);
+                if (ImGui::InputDouble("Outer Prob##h", &adjParams.probOut, 0.0001, 0.01, "%.15g"))
+                    adjParams.probOut = std::clamp(adjParams.probOut, 0.0, 1.0);
+                if (ImGui::InputDouble("Decay Ratio", &adjParams.decayRatio, 0.001, 0.1, "%.15g"))
+                    adjParams.decayRatio = std::clamp(adjParams.decayRatio, 0.0, 1.0);
+            }
             break;
         }
     }
     ImGui::InputInt("Seed##Adj", &adjParams.seed, 1, 10);
-    if (ImGui::Button("Generate Adjacency", ImVec2(-1, 0)))
+    if (ImGui::Button(isOAGeneral ? "Generate Coupling Matrix" : "Generate Adjacency", ImVec2(-1, 0)))
     {
-        size_t seedVal = static_cast<size_t>(std::max(1, adjParams.seed));
-        switch (adjParams.adjState)
+        if (isOAGeneral)
         {
-            case MathEngine::NetworkTopology::Uniform:
-                adj = MathEngine::random(modelParams.N,adjParams.weightMin,adjParams.weightMax,seedVal);
-                break;
-            case MathEngine::NetworkTopology::UniformSymmetric:
-                adj = MathEngine::random_symmetric(modelParams.N,adjParams.weightMin,adjParams.weightMax,seedVal);
-                break;
-            case MathEngine::NetworkTopology::ErdosRenyi:
-                adj = MathEngine::erdos_renyi(modelParams.N,adjParams.prob,adjParams.weightMin,adjParams.weightMax,seedVal);
-                break;
-            case MathEngine::NetworkTopology::ErdosRenyiUniform:
-                adj = MathEngine::erdos_renyi_uniform(modelParams.N,adjParams.prob,adjParams.weightMin,adjParams.weightMax,seedVal);
-                break;
-            case MathEngine::NetworkTopology::ErdosRenyiSymmetric:
-                adj = MathEngine::erdos_renyi_symmetric(modelParams.N,adjParams.prob,adjParams.weightMin,adjParams.weightMax,seedVal);
-                break;
-            case MathEngine::NetworkTopology::ErdosRenyiSymmetricUniform:
-                adj = MathEngine::erdos_renyi_symmetric_uniform(modelParams.N,adjParams.prob,adjParams.weightMin,adjParams.weightMax,seedVal);
-                break;
-            case MathEngine::NetworkTopology::SmallWorld:
-                adj = MathEngine::small_world(modelParams.N,adjParams.meanDegree,adjParams.prob,adjParams.weight,seedVal);
-                break;
-            case MathEngine::NetworkTopology::SmallWorldDirected:
-                adj = MathEngine::small_world_directed(modelParams.N,adjParams.meanDegree,adjParams.prob,adjParams.weight,seedVal);
-                break;
-            case MathEngine::NetworkTopology::Modular:
-                modelParams.sModules = adjParams.sModulesM;
-                modelParams.nModules = adjParams.nModulesM;
-                modelParams.N = modelParams.sModules * modelParams.nModules;
-                adj = MathEngine::modular(modelParams.sModules,modelParams.nModules,adjParams.probIn,adjParams.probOut,
-                                          adjParams.weightIn,adjParams.weightOut,
-                                          seedVal);
-                break;
-            case MathEngine::NetworkTopology::Hierarchical:
-                modelParams.sModules = adjParams.sModulesBase;
-                modelParams.nModules = adjParams.nModulesBase * static_cast<size_t>(std::pow(2, adjParams.hLevels - 1));
-                modelParams.N = modelParams.sModules * modelParams.nModules;
-                adj = MathEngine::hierarchical(adjParams.sModulesBase,adjParams.hLevels,adjParams.probIn, adjParams.probOut,
-                                               adjParams.weightIn,adjParams.weightOut, adjParams.decayRatio, seedVal,
-                                               adjParams.nModulesBase);
-                break;
+            modelParams.oaK = GenerateOACouplingMatrix();
         }
-
-        if (modelParams.kuramotoType == KuramotoType::KuramotoSparse)
+        else
         {
-            sparseAdj = MathEngine::dense_to_sparse(adj);
-        }
-        for (size_t i=0; i<modelParams.N; ++i)
-        {
-            for (size_t j=0; j<modelParams.N; ++j)
+            size_t seedVal = static_cast<size_t>(std::max(1, adjParams.seed));
+            switch (adjParams.adjState)
             {
-                char adjs[64];
-                snprintf(adjs,sizeof(adjs),"%.15g",adj[i][j]);
-                cellWidthBase = std::max(cellWidthBase,ImGui::CalcTextSize(adjs).x);
-                if (cellHeightBase ==1.0f) cellHeightBase = ImGui::CalcTextSize(adjs).y;
+                case MathEngine::NetworkTopology::Uniform:
+                    adj = MathEngine::random(modelParams.N,adjParams.weightMin,adjParams.weightMax,seedVal);
+                    break;
+                case MathEngine::NetworkTopology::UniformSymmetric:
+                    adj = MathEngine::random_symmetric(modelParams.N,adjParams.weightMin,adjParams.weightMax,seedVal);
+                    break;
+                case MathEngine::NetworkTopology::ErdosRenyi:
+                    adj = MathEngine::erdos_renyi(modelParams.N,adjParams.prob,adjParams.weightMin,adjParams.weightMax,seedVal);
+                    break;
+                case MathEngine::NetworkTopology::ErdosRenyiUniform:
+                    adj = MathEngine::erdos_renyi_uniform(modelParams.N,adjParams.prob,adjParams.weightMin,adjParams.weightMax,seedVal);
+                    break;
+                case MathEngine::NetworkTopology::ErdosRenyiSymmetric:
+                    adj = MathEngine::erdos_renyi_symmetric(modelParams.N,adjParams.prob,adjParams.weightMin,adjParams.weightMax,seedVal);
+                    break;
+                case MathEngine::NetworkTopology::ErdosRenyiSymmetricUniform:
+                    adj = MathEngine::erdos_renyi_symmetric_uniform(modelParams.N,adjParams.prob,adjParams.weightMin,adjParams.weightMax,seedVal);
+                    break;
+                case MathEngine::NetworkTopology::SmallWorld:
+                    adj = MathEngine::small_world(modelParams.N,adjParams.meanDegree,adjParams.prob,adjParams.weight,seedVal);
+                    break;
+                case MathEngine::NetworkTopology::SmallWorldDirected:
+                    adj = MathEngine::small_world_directed(modelParams.N,adjParams.meanDegree,adjParams.prob,adjParams.weight,seedVal);
+                    break;
+                case MathEngine::NetworkTopology::Modular:
+                    modelParams.sModules = adjParams.sModulesM;
+                    modelParams.nModules = adjParams.nModulesM;
+                    modelParams.N = modelParams.sModules * modelParams.nModules;
+                    adj = MathEngine::modular(modelParams.sModules,modelParams.nModules,adjParams.probIn,adjParams.probOut,
+                                              adjParams.weightIn,adjParams.weightOut,
+                                              seedVal);
+                    break;
+                case MathEngine::NetworkTopology::Hierarchical:
+                    modelParams.sModules = adjParams.sModulesBase;
+                    modelParams.nModules = adjParams.nModulesBase * static_cast<size_t>(std::pow(2, adjParams.hLevels - 1));
+                    modelParams.N = modelParams.sModules * modelParams.nModules;
+                    adj = MathEngine::hierarchical(adjParams.sModulesBase,adjParams.hLevels,adjParams.probIn, adjParams.probOut,
+                                                   adjParams.weightIn,adjParams.weightOut, adjParams.decayRatio, seedVal,
+                                                   adjParams.nModulesBase);
+                    break;
+            }
+
+            if (modelParams.kuramotoType == KuramotoType::KuramotoSparse)
+            {
+                sparseAdj = MathEngine::dense_to_sparse(adj);
+            }
+            for (size_t i=0; i<modelParams.N; ++i)
+            {
+                for (size_t j=0; j<modelParams.N; ++j)
+                {
+                    char adjs[64];
+                    snprintf(adjs,sizeof(adjs),"%.15g",adj[i][j]);
+                    cellWidthBase = std::max(cellWidthBase,ImGui::CalcTextSize(adjs).x);
+                    if (cellHeightBase ==1.0f) cellHeightBase = ImGui::CalcTextSize(adjs).y;
+                }
             }
         }
     }
 
-    if (ImGui::Button("View Matrix Values", ImVec2(-1, 0)))
+    if (!isOAGeneral)
     {
-        adjParams.showAdjMatrix = true;
+        if (ImGui::Button("View Matrix Values", ImVec2(-1, 0)))
+        {
+            adjParams.showAdjMatrix = true;
+        }
     }
+}
+
+inline MathEngine::dMatrix AppState::GenerateOACouplingMatrix()
+{
+    const size_t seedVal = static_cast<size_t>(std::max(1, adjParams.seed));
+    MathEngine::dMatrix K;
+    switch (adjParams.adjState)
+    {
+        case MathEngine::NetworkTopology::Uniform:
+            K = MathEngine::random(modelParams.oaC, adjParams.weightMin, adjParams.weightMax, seedVal); break;
+        case MathEngine::NetworkTopology::UniformSymmetric:
+            K = MathEngine::random_symmetric(modelParams.oaC, adjParams.weightMin, adjParams.weightMax, seedVal); break;
+        case MathEngine::NetworkTopology::ErdosRenyi:
+            K = MathEngine::erdos_renyi(modelParams.oaC, adjParams.prob, adjParams.weightMin, adjParams.weightMax, seedVal); break;
+        case MathEngine::NetworkTopology::ErdosRenyiUniform:
+            K = MathEngine::erdos_renyi_uniform(modelParams.oaC, adjParams.prob, adjParams.weightMin, adjParams.weightMax, seedVal); break;
+        case MathEngine::NetworkTopology::ErdosRenyiSymmetric:
+            K = MathEngine::erdos_renyi_symmetric(modelParams.oaC, adjParams.prob, adjParams.weightMin, adjParams.weightMax, seedVal); break;
+        case MathEngine::NetworkTopology::ErdosRenyiSymmetricUniform:
+            K = MathEngine::erdos_renyi_symmetric_uniform(modelParams.oaC, adjParams.prob, adjParams.weightMin, adjParams.weightMax, seedVal); break;
+        case MathEngine::NetworkTopology::SmallWorld:
+            K = MathEngine::small_world(modelParams.oaC, adjParams.meanDegree, adjParams.prob, adjParams.weight, seedVal); break;
+        case MathEngine::NetworkTopology::SmallWorldDirected:
+            K = MathEngine::small_world_directed(modelParams.oaC, adjParams.meanDegree, adjParams.prob, adjParams.weight, seedVal); break;
+        case MathEngine::NetworkTopology::Modular:
+            K = MathEngine::modular(1, modelParams.oaC, adjParams.probIn, adjParams.probOut, adjParams.weightIn, adjParams.weightOut, seedVal); break;
+        case MathEngine::NetworkTopology::Hierarchical:
+            modelParams.oaC = adjParams.nModulesBase * (static_cast<size_t>(1) << (adjParams.hLevels - 1));
+            K = MathEngine::hierarchical(1, adjParams.hLevels, adjParams.probIn, adjParams.probOut,
+                                         adjParams.weightIn, adjParams.weightOut, adjParams.decayRatio,
+                                         seedVal, adjParams.nModulesBase);
+            break;
+        default:
+            K = MathEngine::random(modelParams.oaC, adjParams.weightMin, adjParams.weightMax, seedVal); break;
+    }
+    // Add the intra-community coupling on the diagonal.
+    for (size_t c = 0; c < K.Rows(); ++c) K[c, c] = modelParams.K;
+    return K;
 }
 
 inline void AppState::DrawInitialsPanelContent()
@@ -1014,6 +1087,13 @@ inline void AppState::DrawInitialsPanelContent()
         ImGui::Separator();
         if (ImGui::Button("Compile Model Function", ImVec2(-1, 35)))
         {
+            // For OA general, generate the coupling matrix if missing or stale
+            // (this may derive C for the hierarchical topology).
+            if (modelParams.oaType==OAType::OAGeneral && modelParams.oaK.Rows() != modelParams.oaC)
+            {
+                modelParams.oaK = GenerateOACouplingMatrix();
+            }
+
             const size_t C = (modelParams.oaType==OAType::OASingle) ? 1 : modelParams.oaC;
 
             // Ensure initial conditions exist.
@@ -1042,11 +1122,6 @@ inline void AppState::DrawInitialsPanelContent()
                 if (modelParams.oaGammas.size() != C) modelParams.oaGammas = MathEngine::random_uniform(C, 0.5, 1.5, seedVal);
                 if (modelParams.oaMus.size()    != C) modelParams.oaMus    = MathEngine::random_uniform(C, -1.0, 1.0, seedVal + 1);
                 if (modelParams.oaEta.size()    != C) modelParams.oaEta    = MathEngine::dVec(C, 1.0 / static_cast<double>(C));
-                if (modelParams.oaK.Rows() != C || modelParams.oaK.Cols() != C)
-                {
-                    modelParams.oaK = MathEngine::dMatrix(C, C, modelParams.Q);
-                    for (size_t i = 0; i < C; ++i) modelParams.oaK[i, i] = modelParams.K;
-                }
 
                 MathEngine::OAGeneralParams p;
                 p.gammas = modelParams.oaGammas;
