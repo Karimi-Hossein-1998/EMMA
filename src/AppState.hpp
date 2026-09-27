@@ -157,9 +157,8 @@ struct GeneralModelParams
     double oaMu    = 0.0;
     // Ott-Antonsen (general / multi-community).
     size_t oaC = 2;              // number of communities
-    double oaRho  = 0.5;         // initial order-parameter magnitude
-    double oaPhi  = 0.0;         // initial order-parameter phase
-    int    oaSeed = 41;          // seed for random per-community initial conditions
+    double oaRho  = 0.5;         // fallback initial order-parameter magnitude
+    double oaPhi  = 0.0;         // fallback initial order-parameter phase
     MathEngine::dVec     oaGammas;   // per-community gamma (size C)
     MathEngine::dVec     oaMus;      // per-community mu    (size C)
     MathEngine::dVec     oaEta;      // per-community population fractions (size C)
@@ -235,6 +234,11 @@ struct SaveParams
     bool saveSolution       = true;
     bool saveTimePoints     = true;
     bool saveOrderParameter = true;
+    bool saveOAInitial      = true;
+    bool saveOAGamma        = true;
+    bool saveOAMu           = true;
+    bool saveOAEta          = true;
+    bool saveOACoupling     = true;
     bool binary             = false;
     bool append             = false;
     int  precision          = 15;
@@ -254,6 +258,11 @@ enum class SaveArtifactKind : int
     Solution,
     TimePoints,
     OrderParameter,
+    OAInitialOrder,
+    OAGamma,
+    OAMu,
+    OAEta,
+    OACoupling,
     Count
 };
 struct SaveArtifact
@@ -272,6 +281,11 @@ constexpr SaveArtifact SaveArtifacts[] = {
     { "Solution",               "Solution",          "Solution.csv",             ModelType::Kuramoto, true,  &SaveParams::saveSolution       },
     { "Time Points",            "Solution",          "TimePoints.csv",           ModelType::Kuramoto, true,  &SaveParams::saveTimePoints     },
     { "Order Parameter",        "Analysis",          "OrderParameter.csv",       ModelType::Kuramoto, true,  &SaveParams::saveOrderParameter },
+    { "Initial Order Parameters","InitialConditions", "InitialOrderParameters.csv", ModelType::OttAntonsen, false, &SaveParams::saveOAInitial  },
+    { "Lorentzian Width (gamma)","InitialConditions", "Gamma.csv",                 ModelType::OttAntonsen, false, &SaveParams::saveOAGamma    },
+    { "Lorentzian Center (mu)",  "InitialConditions", "Mu.csv",                    ModelType::OttAntonsen, false, &SaveParams::saveOAMu       },
+    { "Population Fractions (eta)","InitialConditions","Eta.csv",                  ModelType::OttAntonsen, false, &SaveParams::saveOAEta      },
+    { "Coupling Matrix (K)",     "Topology",         "CouplingMatrix.csv",         ModelType::OttAntonsen, false, &SaveParams::saveOACoupling },
 };
 constexpr int SaveArtifactCount = static_cast<int>(sizeof(SaveArtifacts) / sizeof(SaveArtifacts[0]));
 static_assert(SaveArtifactCount == static_cast<int>(SaveArtifactKind::Count), "SaveArtifact table must match SaveArtifactKind");
@@ -287,6 +301,11 @@ class AppState
         GeneralModelParams modelParams = GeneralModelParams(50);
         DistParams phaseParams;
         DistParams frqncParams;
+        DistParams oaRhoParams{0.0, 0.5};               // initial order magnitude (rho)
+        DistParams oaPhiParams{-MathEngine::PI, MathEngine::PI}; // initial order phase (phi)
+        DistParams oaGammaParams{0.5, 1.5};             // Lorentzian half-width
+        DistParams oaMuParams{-1.0, 1.0};               // Lorentzian center
+        DistParams oaEtaParams;                         // population fractions (normalized)
         NetParams adjParams;
         SolverParams solverParams;
         PlotParams plotParams;
@@ -309,6 +328,7 @@ class AppState
         size_t initW = 800;
         size_t initH = 600;
         std::atomic<bool> isSimRunning{false};
+        std::thread simThread;
         bool showStyleEditor=false;
         bool showDelays=false;
         bool showPlot=false;
@@ -316,6 +336,12 @@ class AppState
         bool DarkTheme=true;
         bool showAbout=false;
         int activeSidebarTab = -1; // -1 = drawer closed (no section selected)
+
+        ~AppState()
+        {
+            // Join the simulation thread (if any) on shutdown to avoid std::terminate.
+            if (simThread.joinable()) simThread.join();
+        }
 
         inline void RenderUI()
         {
@@ -388,6 +414,8 @@ class AppState
         inline void DrawModelPanelContent();
         inline void DrawTopologyPanelContent();
         inline MathEngine::dMatrix GenerateOACouplingMatrix();
+        inline void DrawInitDistPicker(DistParams& p, const char* label);
+        inline MathEngine::dVec GenerateOAVector(const DistParams& p, size_t C, int seedOffset = 0);
 		inline void DrawInitialsPanelContent();
 		inline void DrawODESolverParametersPanelContent();
 		inline void RenderModals();
@@ -407,6 +435,7 @@ class AppState
         inline MathEngine::IO::WriteOptions MakeWriteOptions(const std::filesystem::path& filePath, std::string_view header = {});
         inline bool ArtifactApplies(const SaveArtifact& artifact) const;
         inline bool WriteArtifactData(SaveArtifactKind kind, const std::filesystem::path& filePath);
+        inline void DrawVectorViewer(bool& open, const char* title, const MathEngine::dVec& data, const char* emptyText);
 };
 
 inline bool AppState::DrawActivityButton(const char* icon, const char* title, bool active)
@@ -681,6 +710,37 @@ inline bool AppState::WriteArtifactData(SaveArtifactKind kind, const std::filesy
             MathEngine::IO::WriteMatrix(op, MakeWriteOptions(filePath, header));
             return true;
         }
+        case SaveArtifactKind::OAInitialOrder:
+        {
+            if (modelParams.oaIC.empty()) return false;
+            const size_t C = modelParams.oaIC.size() / 2;
+            MathEngine::dMatrix op(C, 2, 0.0); // [rho, phi]
+            for (size_t c = 0; c < C; ++c)
+            {
+                const double x = modelParams.oaIC[2*c + 0];
+                const double y = modelParams.oaIC[2*c + 1];
+                op[c, 0] = std::hypot(x, y);
+                op[c, 1] = std::atan2(y, x);
+            }
+            MathEngine::IO::WriteMatrix(op, MakeWriteOptions(filePath, "Initial order parameters (rho, phi)"));
+            return true;
+        }
+        case SaveArtifactKind::OAGamma:
+            if (modelParams.oaGammas.empty()) return false;
+            MathEngine::IO::WriteVector(std::span<const double>(modelParams.oaGammas), MakeWriteOptions(filePath, "Lorentzian half-width (gamma)"));
+            return true;
+        case SaveArtifactKind::OAMu:
+            if (modelParams.oaMus.empty()) return false;
+            MathEngine::IO::WriteVector(std::span<const double>(modelParams.oaMus), MakeWriteOptions(filePath, "Lorentzian center (mu)"));
+            return true;
+        case SaveArtifactKind::OAEta:
+            if (modelParams.oaEta.empty()) return false;
+            MathEngine::IO::WriteVector(std::span<const double>(modelParams.oaEta), MakeWriteOptions(filePath, "Population fractions (eta)"));
+            return true;
+        case SaveArtifactKind::OACoupling:
+            if (modelParams.oaK.empty()) return false;
+            MathEngine::IO::WriteMatrix(modelParams.oaK, MakeWriteOptions(filePath, "Community coupling matrix (K)"));
+            return true;
         default: return false;
     }
 }
@@ -997,12 +1057,9 @@ inline void AppState::DrawTopologyPanelContent()
         }
     }
 
-    if (!isOAGeneral)
+    if (ImGui::Button(isOAGeneral ? "View Coupling Matrix" : "View Matrix Values", ImVec2(-1, 0)))
     {
-        if (ImGui::Button("View Matrix Values", ImVec2(-1, 0)))
-        {
-            adjParams.showAdjMatrix = true;
-        }
+        adjParams.showAdjMatrix = true;
     }
 }
 
@@ -1044,36 +1101,79 @@ inline MathEngine::dMatrix AppState::GenerateOACouplingMatrix()
     return K;
 }
 
+inline void AppState::DrawInitDistPicker(DistParams& p, const char* label)
+{
+    char buf[128];
+    if (ImGui::Combo(label, &p.typeIndex, moduleTypeNames, 7))
+        p.initState = static_cast<MathEngine::InitState>(p.typeIndex);
+
+    switch (p.initState)
+    {
+        case MathEngine::InitState::Uniform:
+            snprintf(buf, sizeof(buf), "Min##%s", label);
+            ImGui::InputDouble(buf, &p.minVal, 0.0001, 0.01, "%.15g");
+            snprintf(buf, sizeof(buf), "Max##%s", label);
+            if (ImGui::InputDouble(buf, &p.maxVal, 0.0001, 0.01, "%.15g"))
+                p.maxVal = std::max(p.minVal, p.maxVal);
+            break;
+        case MathEngine::InitState::Normal:
+            snprintf(buf, sizeof(buf), "Mean##%s", label);
+            ImGui::InputDouble(buf, &p.mean, 0.0001, 0.01, "%.15g");
+            snprintf(buf, sizeof(buf), "Stddev##%s", label);
+            if (ImGui::InputDouble(buf, &p.stddev, 0.0001, 0.01, "%.15g"))
+                p.stddev = std::max(1e-5, p.stddev);
+            break;
+        case MathEngine::InitState::Cauchy:
+            snprintf(buf, sizeof(buf), "Location##%s", label);
+            ImGui::InputDouble(buf, &p.location, 0.0001, 0.01, "%.15g");
+            snprintf(buf, sizeof(buf), "Scale##%s", label);
+            if (ImGui::InputDouble(buf, &p.scale, 0.0001, 0.01, "%.15g"))
+                p.scale = std::max(1e-5, p.scale);
+            break;
+        case MathEngine::InitState::Exponential:
+            snprintf(buf, sizeof(buf), "Rate##%s", label);
+            if (ImGui::InputDouble(buf, &p.rate, 0.0001, 0.01, "%.15g"))
+                p.rate = std::max(1e-5, p.rate);
+            break;
+        case MathEngine::InitState::SplayPerturbed:
+            snprintf(buf, sizeof(buf), "Perturbation##%s", label);
+            ImGui::InputDouble(buf, &p.perturbation, 0.000001, 0.0001, "%.15g");
+            break;
+        default: break;
+    }
+}
+
+inline MathEngine::dVec AppState::GenerateOAVector(const DistParams& p, size_t C, int seedOffset)
+{
+    const size_t seedVal = static_cast<size_t>(std::max(1, p.seed + seedOffset));
+    switch (p.initState)
+    {
+        case MathEngine::InitState::Uniform:        return MathEngine::random_uniform(C, p.minVal, p.maxVal, seedVal);
+        case MathEngine::InitState::Normal:         return MathEngine::random_normal(C, p.mean, p.stddev, seedVal);
+        case MathEngine::InitState::Cauchy:         return MathEngine::random_cauchy(C, p.location, p.scale, seedVal);
+        case MathEngine::InitState::Exponential:    return MathEngine::random_exponential(C, p.rate, seedVal);
+        case MathEngine::InitState::Circle:         return MathEngine::random_circle<double>(C, seedVal);
+        case MathEngine::InitState::Splay:          return MathEngine::splay<double>(C);
+        case MathEngine::InitState::SplayPerturbed: return MathEngine::splay_perturbed(C, p.perturbation, seedVal);
+        default:                                    return MathEngine::random_uniform(C, p.minVal, p.maxVal, seedVal);
+    }
+}
+
 inline void AppState::DrawInitialsPanelContent()
 {
     if (modelParams.modelType==ModelType::OttAntonsen)
     {
         ImGui::SeparatorText("Initial Order Parameters");
-        ImGui::InputDouble("Initial rho (|r|)", &modelParams.oaRho, 0.0001, 0.01, "%.15g");
-        if (ImGui::InputDouble("Initial phi (arg r)", &modelParams.oaPhi, 0.0001, 0.01, "%.15g rad"))
-            modelParams.oaPhi = std::clamp(modelParams.oaPhi, -MathEngine::PI, MathEngine::PI);
-        ImGui::InputInt("Seed##OA", &modelParams.oaSeed, 1, 10);
-
-        if (modelParams.oaType==OAType::OAGeneral)
-        {
-            ImGui::Spacing();
-            ImGui::SeparatorText("Community Parameters");
-            if (ImGui::Button("Generate gamma/mu/eta", ImVec2(-1, 0)))
-            {
-                size_t seedVal = static_cast<size_t>(std::max(1, modelParams.oaSeed));
-                const size_t C = modelParams.oaC;
-                modelParams.oaGammas = MathEngine::random_uniform(C, 0.5, 1.5, seedVal);
-                modelParams.oaMus    = MathEngine::random_uniform(C, -1.0, 1.0, seedVal + 1);
-                modelParams.oaEta    = MathEngine::dVec(C, 1.0 / static_cast<double>(C));
-            }
-        }
-
+        DrawInitDistPicker(oaRhoParams, "rho (magnitude)");
+        DrawInitDistPicker(oaPhiParams, "phi (phase)");
+        ImGui::InputInt("Seed##OA-IC", &oaRhoParams.seed, 1, 10);
+        oaPhiParams.seed = oaRhoParams.seed;
         if (ImGui::Button("Generate Initial Order Parameters", ImVec2(-1, 0)))
         {
-            size_t seedVal = static_cast<size_t>(std::max(1, modelParams.oaSeed));
             const size_t C = (modelParams.oaType==OAType::OASingle) ? 1 : modelParams.oaC;
-            MathEngine::dVec rho = MathEngine::random_uniform(C, 0.0, std::max(1e-3, modelParams.oaRho), seedVal);
-            MathEngine::dVec phi = MathEngine::random_uniform(C, -MathEngine::PI, MathEngine::PI, seedVal + 7);
+            MathEngine::dVec rho = GenerateOAVector(oaRhoParams, C);
+            MathEngine::dVec phi = GenerateOAVector(oaPhiParams, C, 7);
+            for (double& r : rho) r = std::clamp(std::abs(r), 0.0, 1.0);
             modelParams.oaIC.resize(2 * C);
             for (size_t c = 0; c < C; ++c)
             {
@@ -1082,13 +1182,47 @@ inline void AppState::DrawInitialsPanelContent()
             }
             solverParams.solverParams.initialConditions = modelParams.oaIC;
         }
+        if (ImGui::Button("View Order Parameters", ImVec2(-1, 0))) oaRhoParams.showArray = true;
+
+        if (modelParams.oaType==OAType::OAGeneral)
+        {
+            ImGui::Spacing();
+            ImGui::SeparatorText("Lorentzian Parameters (gamma, mu)");
+            DrawInitDistPicker(oaGammaParams, "gamma (width)");
+            DrawInitDistPicker(oaMuParams, "mu (center)");
+            ImGui::InputInt("Seed##OA-Lor", &oaGammaParams.seed, 1, 10);
+            oaMuParams.seed = oaGammaParams.seed;
+            if (ImGui::Button("Generate gamma/mu", ImVec2(-1, 0)))
+            {
+                const size_t C = modelParams.oaC;
+                modelParams.oaGammas = GenerateOAVector(oaGammaParams, C);
+                for (double& g : modelParams.oaGammas) g = std::abs(g) + 1e-6;
+                modelParams.oaMus = GenerateOAVector(oaMuParams, C, 1);
+            }
+            if (ImGui::Button("View gamma", ImVec2(-1, 0))) oaGammaParams.showArray = true;
+            ImGui::SameLine();
+            if (ImGui::Button("View mu", ImVec2(-1, 0))) oaMuParams.showArray = true;
+
+            ImGui::Spacing();
+            ImGui::SeparatorText("Population Fractions (eta)");
+            DrawInitDistPicker(oaEtaParams, "eta (fractions)");
+            ImGui::InputInt("Seed##OA-Eta", &oaEtaParams.seed, 1, 10);
+            if (ImGui::Button("Generate eta", ImVec2(-1, 0)))
+            {
+                const size_t C = modelParams.oaC;
+                modelParams.oaEta = GenerateOAVector(oaEtaParams, C);
+                double s = 0.0;
+                for (double& e : modelParams.oaEta) { e = std::abs(e); s += e; }
+                if (s > 0.0) { for (double& e : modelParams.oaEta) e /= s; }
+                else modelParams.oaEta.assign(C, 1.0 / static_cast<double>(C));
+            }
+            if (ImGui::Button("View eta", ImVec2(-1, 0))) oaEtaParams.showArray = true;
+        }
 
         ImGui::Spacing();
         ImGui::Separator();
         if (ImGui::Button("Compile Model Function", ImVec2(-1, 35)))
         {
-            // For OA general, generate the coupling matrix if missing or stale
-            // (this may derive C for the hierarchical topology).
             if (modelParams.oaType==OAType::OAGeneral && modelParams.oaK.Rows() != modelParams.oaC)
             {
                 modelParams.oaK = GenerateOACouplingMatrix();
@@ -1118,10 +1252,10 @@ inline void AppState::DrawInitialsPanelContent()
             }
             else
             {
-                const size_t seedVal = static_cast<size_t>(std::max(1, modelParams.oaSeed));
-                if (modelParams.oaGammas.size() != C) modelParams.oaGammas = MathEngine::random_uniform(C, 0.5, 1.5, seedVal);
-                if (modelParams.oaMus.size()    != C) modelParams.oaMus    = MathEngine::random_uniform(C, -1.0, 1.0, seedVal + 1);
-                if (modelParams.oaEta.size()    != C) modelParams.oaEta    = MathEngine::dVec(C, 1.0 / static_cast<double>(C));
+                if (modelParams.oaGammas.size() != C) modelParams.oaGammas = GenerateOAVector(oaGammaParams, C);
+                if (modelParams.oaMus.size()    != C) modelParams.oaMus    = GenerateOAVector(oaMuParams, C, 1);
+                if (modelParams.oaEta.size()    != C) modelParams.oaEta.assign(C, 1.0 / static_cast<double>(C));
+                for (double& g : modelParams.oaGammas) g = std::abs(g) + 1e-6;
 
                 MathEngine::OAGeneralParams p;
                 p.gammas = modelParams.oaGammas;
@@ -1457,6 +1591,27 @@ inline void AppState::DrawODESolverParametersPanelContent()
     // }
 }
 
+inline void AppState::DrawVectorViewer(bool& open, const char* title, const MathEngine::dVec& data, const char* emptyText)
+{
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImVec2 center = viewport->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(500, 480), ImGuiCond_Appearing);
+    if (ImGui::Begin(title, &open))
+    {
+        if (ImGui::BeginChild("VecList", ImVec2(0, 330), ImGuiChildFlags_Borders))
+        {
+            if (data.empty())
+                ImGui::TextDisabled("%s", emptyText);
+            else
+                for (size_t i = 0; i < data.size(); ++i)
+                    ImGui::Text("[%03zu]  %.15g", i + 1, data[i]);
+        }
+        ImGui::EndChild();
+    }
+    ImGui::End();
+}
+
 inline void AppState::RenderModals()
 {
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -1466,16 +1621,18 @@ inline void AppState::RenderModals()
     {
         ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
         ImGui::SetNextWindowSize(ImVec2(550, 480), ImGuiCond_Appearing);
-        if (ImGui::Begin("Adjacency Matrix Viewer", &adjParams.showAdjMatrix))
+        const MathEngine::dMatrix& m = (modelParams.modelType==ModelType::OttAntonsen) ? modelParams.oaK : adj;
+        const char* viewerTitle = (modelParams.modelType==ModelType::OttAntonsen) ? "Coupling Matrix Viewer" : "Adjacency Matrix Viewer";
+        if (ImGui::Begin(viewerTitle, &adjParams.showAdjMatrix))
         {
-            size_t nRows = adj.size();
-            size_t nCols = nRows > 0 ? adj[0].size() : 0;
+            size_t nRows = m.Rows();
+            size_t nCols = m.Cols();
             ImGui::Text("Dimension: %zu x %zu", nRows, nCols);
             ImGui::Separator();
 
             if (nRows == 0 || nCols == 0)
             {
-                ImGui::TextDisabled("Matrix is Empty. Generate an Adjacency Matrix first.");
+                ImGui::TextDisabled("Matrix is empty. Generate it first.");
             }
             else
             {
@@ -1510,7 +1667,7 @@ inline void AppState::RenderModals()
                             for (int c=minCol; c<maxCol; ++c)
                             {
                                 ImGui::SetCursorPos(ImVec2((c+1)*cellWidth+5.0f,(r+1)*cellHeight));
-                                double val = adj[r][c];
+                                double val = m[r][c];
                                 if (val >= 1e-5) ImGui::TextColored(ImVec4(0.4f, 0.9f, 1.0f, 1.0f), "%.15g", val);
                                 else ImGui::TextDisabled("0.0000");
                             }
@@ -1542,7 +1699,7 @@ inline void AppState::RenderModals()
                             for (size_t c = 0; c < nCols; ++c)
                             {
                                 ImGui::TableSetColumnIndex(static_cast<int>(c + 1));
-                                double val = adj[r][c];
+                                double val = m[r][c];
                                 if (val >= 1e-5) ImGui::Text("%.15g", val);
                                 else ImGui::TextDisabled("0.0000");
                             }
@@ -1605,6 +1762,39 @@ inline void AppState::RenderModals()
         ImGui::End();
     }
 
+    // ---- Ott-Antonsen view modals ----
+    if (oaRhoParams.showArray)
+    {
+        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowSize(ImVec2(500, 480), ImGuiCond_Appearing);
+        if (ImGui::Begin("Initial Order Parameters", &oaRhoParams.showArray))
+        {
+            if (ImGui::BeginChild("OAList", ImVec2(0, 330), ImGuiChildFlags_Borders))
+            {
+                if (modelParams.oaIC.empty())
+                    ImGui::TextDisabled("Array is empty. Click Generate Initial Order Parameters.");
+                else
+                {
+                    const size_t C = modelParams.oaIC.size() / 2;
+                    for (size_t c = 0; c < C; ++c)
+                    {
+                        const double x = modelParams.oaIC[2*c + 0];
+                        const double y = modelParams.oaIC[2*c + 1];
+                        ImGui::Text("[%03zu]  rho=%.15g  phi=%.15g", c + 1, std::hypot(x, y), std::atan2(y, x));
+                    }
+                }
+            }
+            ImGui::EndChild();
+        }
+        ImGui::End();
+    }
+    if (oaGammaParams.showArray)
+        DrawVectorViewer(oaGammaParams.showArray, "Lorentzian Width (gamma)", modelParams.oaGammas, "Array is empty. Click Generate gamma/mu.");
+    if (oaMuParams.showArray)
+        DrawVectorViewer(oaMuParams.showArray, "Lorentzian Center (mu)", modelParams.oaMus, "Array is empty. Click Generate gamma/mu.");
+    if (oaEtaParams.showArray)
+        DrawVectorViewer(oaEtaParams.showArray, "Population Fractions (eta)", modelParams.oaEta, "Array is empty. Click Generate eta.");
+
     // if (showDelays)
     // {
     //     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
@@ -1642,6 +1832,12 @@ inline void AppState::RenderModals()
 
 inline void AppState::StartSimulation()
 {
+    // Do not start a new simulation while one is still running.
+    if (isSimRunning.load()) return;
+
+    // Reap any previous (finished) simulation thread before launching a new one.
+    if (simThread.joinable()) simThread.join();
+
     processStartTime = std::chrono::steady_clock::now();
     simProgress.store(0.0f);
     isSimRunning.store(true);
@@ -1748,12 +1944,19 @@ inline void AppState::StartSimulation()
         }
     };
 #ifndef __EMSCRIPTEN__
-    std::thread([this]()
+    simThread = std::thread([this]()
     {
-        solverParams.solverResults = solverParams.solverFunc(solverParams.solverParams);
+        try
+        {
+            solverParams.solverResults = solverParams.solverFunc(solverParams.solverParams);
+        }
+        catch (...)
+        {
+            // Keep the UI from getting stuck in "Running..." if the solver throws.
+        }
         simProgress.store(1.0);
         isSimRunning.store(false);
-    }).detach();
+    });
 #else
     // Web: sync run (no pthreads).
     solverParams.solverResults = solverParams.solverFunc(solverParams.solverParams);
