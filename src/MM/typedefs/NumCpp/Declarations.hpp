@@ -167,12 +167,7 @@ public:
 			double diff = static_cast<double>(stop-start); double dStep = static_cast<double>(step);
 			double divided = diff/dStep;
 			std::uint64_t newSize = static_cast<std::uint64_t>(divided);
-			double eps=std::max<double>(1e-14,divided*std::numeric_limits<double>::epsilon()*10.0);
-			double diff = static_cast<double>(stop-start); 
-			double dStep = static_cast<double>(step);
-			double divided = diff/dStep;
-			std::uint64_t newSize = static_cast<std::uint64_t>(divided);
-			double eps=std::max<double>(1e-14, divided*std::numeric_limits<double>::epsilon()*10.0);
+			double eps=std::max<double>(1e-14,divided*std::numeric_limits<T>::epsilon()*10.0);
 			size = (divided-static_cast<double>(newSize))>eps?newSize+1:newSize;
 		}
 	}
