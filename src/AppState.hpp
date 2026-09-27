@@ -1200,7 +1200,6 @@ inline void AppState::DrawInitialsPanelContent()
                 modelParams.oaMus = GenerateOAVector(oaMuParams, C, 1);
             }
             if (ImGui::Button("View gamma", ImVec2(-1, 0))) oaGammaParams.showArray = true;
-            ImGui::SameLine();
             if (ImGui::Button("View mu", ImVec2(-1, 0))) oaMuParams.showArray = true;
 
             ImGui::Spacing();
