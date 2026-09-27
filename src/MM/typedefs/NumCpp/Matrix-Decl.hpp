@@ -467,7 +467,7 @@ class Matrix
 		inline void SetRow(std::uint64_t r, std::span<const T> row)
         {
             auto dest = (*this)[r];
-            std::uint64_t copyCount = std::min(row.size(),nCols);
+            std::uint64_t copyCount = std::min(row.size(),static_cast<size_t>(nCols));
             std::ranges::copy(row.subspan(0,copyCount),dest.begin());
             if (copyCount<nCols) std::ranges::fill(dest.subspan(copyCount),T{});
         }
