@@ -196,13 +196,13 @@ class Matrix
         {
             if (i>=nRows) throw std::runtime_error(std::to_string(i)+" is out of bound");
             // std::span<T> spanData {data}; return spanData.subspan(i*nCols,nCols);
-            return {data.data()+i*nCols,static_cast<size_t>(nCols});
+            return {data.data()+i*nCols,static_cast<size_t>(nCols)};
         }
         inline std::span<const T> operator[](std::uint64_t i) const
         {
             if (i>=nRows) throw std::runtime_error(std::to_string(i)+" is out of bound");
             // std::span<T> spanData {data}; return spanData.subspan(i*nCols,nCols);
-            return {data.data()+i*nCols,static_cast<size_t>(nCols});
+            return {data.data()+i*nCols,static_cast<size_t>(nCols)};
         }
         // Slice and Dice
         inline Matrix operator[](Slice rs, Slice cs) const
