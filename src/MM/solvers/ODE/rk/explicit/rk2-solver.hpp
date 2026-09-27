@@ -6,17 +6,10 @@ namespace MathEngine
 namespace funcWrapper
 {
 
-template <bool EnableCallBack>
-inline SolverResults rk2(const ODESolverParameters& Params)
+template <bool EnableCallBack, typename F, typename CB>
+inline SolverResults rk2(double t0, double t1, double dt, const Vec<double>& y0, F&& f, CB&& cb)
 {
-    // Extract parameters for clarity
-    const MyFunc&       f  = Params.derivative;
-    const CallBackFunc& cb = Params.onStep;
-    const Vec<double>&  y0 = Params.initialConditions;
-    const double        t0 = Params.t0;
-    const double        t1 = Params.t1;
-    const double        dt = Params.dt;
-    const size_t N  = y0.size();
+    const size_t N = y0.size();
     if (N==0 || dt<=1e-13 || t0>t1) return SolverResults{};
 
     // Initialize solution storage
@@ -88,30 +81,18 @@ inline SolverResults rk2(const ODESolverParameters& Params)
 
 inline SolverResults rk2_solver(const ODESolverParameters& Params)
 {
-    return funcWrapper::rk2<false>(Params);
+    return funcWrapper::rk2<false>(Params.t0, Params.t1, Params.dt, Params.initialConditions, Params.derivative, Params.onStep);
 }
 
 inline SolverResults rk2_solver_callback(const ODESolverParameters& Params)
 {
-    return funcWrapper::rk2<true>(Params);
+    return funcWrapper::rk2<true>(Params.t0, Params.t1, Params.dt, Params.initialConditions, Params.derivative, Params.onStep);
 }
-// Basic interface wrapper for rk2_solver
-inline Matrix<double> rk2_solver(
-    MyFunc             deriv,
-    const Vec<double>& y0,
-    double             t0,
-    double             t1,
-    double             dt
-)
+// Basic interface wrapper for rk2_solver (templated so any callable can inline)
+template <typename F>
+inline Matrix<double> rk2_solver(F&& deriv, const Vec<double>& y0, double t0, double t1, double dt)
 {
-    ODESolverParameters params{
-        .derivative        = deriv,
-        .initialConditions = y0,
-        .t0                = t0,
-        .t1                = t1,
-        .dt                = dt
-    };
-    return rk2_solver(params).solution;
+    return funcWrapper::rk2<false>(t0, t1, dt, y0, std::forward<F>(deriv), CallBackFunc{}).solution;
 }
 
 template<typename... Args>

@@ -8,19 +8,11 @@ namespace MathEngine
 namespace funcWrapper
 { // namespace funcWrapper
 // General Adams-Bashforth-Moulton predictor-corrector solver (order 1-10)
-template <bool EnableCallBack>
-inline SolverResults adams_bashforth(const ODESolverParameters& Params)
+template <bool EnableCallBack, typename F, typename CB>
+inline SolverResults adams_bashforth(double t0, double t1, double dt, const Vec<double>& y0, int order, F&& f, CB&& cb)
 {
-    // Extract parameters for clarity
-    const MyFunc&       f         = Params.derivative;
-    const CallBackFunc& cb        = Params.onStep;
-    const auto&         y0        = Params.initialConditions;
-    const double        t0        = Params.t0;
-    const double        t1        = Params.t1;
-    const double        dt        = Params.dt;
-    const int           order     = Params.order;
-    const size_t        N         = y0.size();
-    const int           max_order = 10;
+    const size_t N         = y0.size();
+    const int    max_order = 10;
 
     if (order < 1 || order > max_order)
         throw std::invalid_argument("ABM order must be between 1 and 10");
@@ -40,15 +32,7 @@ inline SolverResults adams_bashforth(const ODESolverParameters& Params)
     // solution.SetRow(0, y0);
     timePoints[0] = t0;
     double t1rk = t0 + (order-1)*dt;
-    ODESolverParameters rk_params{
-        .derivative        = f,
-        .onStep            = cb,
-        .initialConditions = y0,
-        .t0                = t0,
-        .t1                = t1rk,
-        .dt                = dt
-    };
-    auto res_rk = rk4<EnableCallBack>(rk_params);    
+    auto res_rk = rk4<EnableCallBack>(t0, t1rk, dt, y0, f, cb);
     // Bootstrap with RK4 for the first (order-1) steps
     for (size_t i = 1; i < order; ++i)
     {
@@ -117,31 +101,17 @@ inline SolverResults adams_bashforth(const ODESolverParameters& Params)
 } // End funcWrapper namespace
 inline SolverResults adams_bashforth_solver(const ODESolverParameters& params)
 {
-    return funcWrapper::adams_bashforth<false>(params);
+    return funcWrapper::adams_bashforth<false>(params.t0, params.t1, params.dt, params.initialConditions, params.order, params.derivative, params.onStep);
 }
 inline SolverResults adams_bashforth_solver_callback(const ODESolverParameters& params)
 {
-    return funcWrapper::adams_bashforth<true>(params);
+    return funcWrapper::adams_bashforth<true>(params.t0, params.t1, params.dt, params.initialConditions, params.order, params.derivative, params.onStep);
 }
-// Basic interface wrapper for Adams-Bashforth-Moulton solver
-inline Matrix<double> adams_bashforth_solver(
-    MyFunc             deriv,
-    const Vec<double>& y0,
-    double             t0,
-    double             t1,
-    double             dt,
-    uint8_t            order
-)
+// Basic interface wrapper for Adams-Bashforth-Moulton solver (templated so any callable can inline)
+template <typename F>
+inline Matrix<double> adams_bashforth_solver(F&& deriv, const Vec<double>& y0, double t0, double t1, double dt, uint8_t order)
 {
-    ODESolverParameters params{
-        .derivative        = deriv,
-        .initialConditions = y0,
-        .t0                = t0,
-        .t1                = t1,
-        .dt                = dt,
-        .order             = order,
-    };
-    return funcWrapper::adams_bashforth<false>(params).solution;
+    return funcWrapper::adams_bashforth<false>(t0, t1, dt, y0, order, std::forward<F>(deriv), CallBackFunc{}).solution;
 }
 } // End MathEngine namespace
 

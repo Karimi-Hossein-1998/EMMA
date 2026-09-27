@@ -9,17 +9,10 @@ namespace MathEngine
 //////////// CALLBACKS ///////////
 namespace funcWrapper
 {
-template <bool EnableCallBack>
-inline SolverResults rk4_38(const ODESolverParameters& Params)
+template <bool EnableCallBack, typename F, typename CB>
+inline SolverResults rk4_38(double t0, double t1, double dt, const Vec<double>& y0, F&& f, CB&& cb)
 {
-    // Extract parameters for clarity
-    const MyFunc&        f  = Params.derivative;
-    const CallBackFunc& cb = Params.onStep;
-    const auto&         y0 = Params.initialConditions;
-    const double        t0 = Params.t0;
-    const double        t1 = Params.t1;
-    const double        dt = Params.dt;
-    const size_t        N  = y0.size();
+    const size_t N = y0.size();
     if (N==0 || dt<=1e-13 || t0>t1) return SolverResults{};
 
     // Initialize solution storage
@@ -95,17 +88,10 @@ inline SolverResults rk4_38(const ODESolverParameters& Params)
     return results;
 }
 
-template <bool EnableCallBack>
-inline SolverResults rk4_ralston(const ODESolverParameters& Params)
+template <bool EnableCallBack, typename F, typename CB>
+inline SolverResults rk4_ralston(double t0, double t1, double dt, const Vec<double>& y0, F&& f, CB&& cb)
 {
-    // Extract parameters for clarity
-    const MyFunc&       f  = Params.derivative;
-    const CallBackFunc& cb = Params.onStep;
-    const auto&         y0 = Params.initialConditions;
-    const double        t0 = Params.t0;
-    const double        t1 = Params.t1;
-    const double        dt = Params.dt;
-    const size_t        N  = y0.size();
+    const size_t N = y0.size();
     if (N==0 || dt<=1e-13 || t0>t1) return SolverResults{};
 
     // Initialize solution storage
@@ -186,17 +172,10 @@ inline SolverResults rk4_ralston(const ODESolverParameters& Params)
     return results;
 }
 
-template <bool EnableCallBack>
-inline SolverResults rk4_gill(const ODESolverParameters& Params)
+template <bool EnableCallBack, typename F, typename CB>
+inline SolverResults rk4_gill(double t0, double t1, double dt, const Vec<double>& y0, F&& f, CB&& cb)
 {
-    // Extract parameters for clarity
-    const MyFunc&       f  = Params.derivative;
-    const CallBackFunc& cb = Params.onStep;
-    const auto&         y0 = Params.initialConditions;
-    const double        t0 = Params.t0;
-    const double        t1 = Params.t1;
-    const double        dt = Params.dt;
-    const size_t        N  = y0.size();
+    const size_t N = y0.size();
     if (N==0 || dt<=1e-13 || t0>t1) return SolverResults{};
 
     // Initialize solution storage
@@ -290,29 +269,29 @@ inline SolverResults rk4_gill(const ODESolverParameters& Params)
 
 inline SolverResults rk4_38_solver(const ODESolverParameters& Params)
 {
-    return funcWrapper::rk4_38<false>(Params);
+    return funcWrapper::rk4_38<false>(Params.t0, Params.t1, Params.dt, Params.initialConditions, Params.derivative, Params.onStep);
 }
 inline SolverResults rk4_38_solver_callback(const ODESolverParameters& Params)
 {
-    return funcWrapper::rk4_38<true>(Params);
+    return funcWrapper::rk4_38<true>(Params.t0, Params.t1, Params.dt, Params.initialConditions, Params.derivative, Params.onStep);
 }
 
 inline SolverResults rk4_ralston_solver(const ODESolverParameters& Params)
 {
-    return funcWrapper::rk4_ralston<false>(Params);
+    return funcWrapper::rk4_ralston<false>(Params.t0, Params.t1, Params.dt, Params.initialConditions, Params.derivative, Params.onStep);
 }
 inline SolverResults rk4_ralston_solver_callback(const ODESolverParameters& Params)
 {
-    return funcWrapper::rk4_ralston<true>(Params);
+    return funcWrapper::rk4_ralston<true>(Params.t0, Params.t1, Params.dt, Params.initialConditions, Params.derivative, Params.onStep);
 }
 
 inline SolverResults rk4_gill_solver(const ODESolverParameters& Params)
 {
-    return funcWrapper::rk4_gill<false>(Params);
+    return funcWrapper::rk4_gill<false>(Params.t0, Params.t1, Params.dt, Params.initialConditions, Params.derivative, Params.onStep);
 }
 inline SolverResults rk4_gill_solver_callback(const ODESolverParameters& Params)
 {
-    return funcWrapper::rk4_gill<true>(Params);
+    return funcWrapper::rk4_gill<true>(Params.t0, Params.t1, Params.dt, Params.initialConditions, Params.derivative, Params.onStep);
 }
 
 } // End namespace MathEngine

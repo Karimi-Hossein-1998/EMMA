@@ -8,17 +8,10 @@ namespace MathEngine
 // accuracy and stability. It requires four derivative evaluations per step.
 namespace funcWrapper
 {
-template <bool EnableCallBack>
-inline SolverResults rk4(const ODESolverParameters& Params)
+template <bool EnableCallBack, typename F, typename CB>
+inline SolverResults rk4(double t0, double t1, double dt, const Vec<double>& y0, F&& f, CB&& cb)
 {
-    // Extract parameters for clarity
-    const MyFunc&       f  = Params.derivative;
-    const CallBackFunc& cb = Params.onStep;
-    const auto&         y0 = Params.initialConditions;
-    const double        t0 = Params.t0;
-    const double        t1 = Params.t1;
-    const double        dt = Params.dt;
-    const size_t        N = y0.size();
+    const size_t N = y0.size();
     if (N==0 || dt<=1e-13 || t0>t1) return SolverResults{};
 
     // Initialize solution storage
@@ -100,29 +93,17 @@ inline SolverResults rk4(const ODESolverParameters& Params)
 
 inline SolverResults rk4_solver(const ODESolverParameters& Params)
 {
-    return funcWrapper::rk4<false>(Params);
+    return funcWrapper::rk4<false>(Params.t0, Params.t1, Params.dt, Params.initialConditions, Params.derivative, Params.onStep);
 }
 inline SolverResults rk4_solver_callback(const ODESolverParameters& Params)
 {
-    return funcWrapper::rk4<true>(Params);
+    return funcWrapper::rk4<true>(Params.t0, Params.t1, Params.dt, Params.initialConditions, Params.derivative, Params.onStep);
 }
-// Basic interface wrapper for rk4_solver
-inline Matrix<double> rk4_solver(
-    MyFunc             deriv,
-    const Vec<double>& y0,
-    double             t0,
-    double             t1,
-    double             dt
-)
+// Basic interface wrapper for rk4_solver (templated so any callable can inline)
+template <typename F>
+inline Matrix<double> rk4_solver(F&& deriv, const Vec<double>& y0, double t0, double t1, double dt)
 {
-    ODESolverParameters params{
-        .derivative        = deriv,
-        .initialConditions = y0,
-        .t0                = t0,
-        .t1                = t1,
-        .dt                = dt
-    };
-    return rk4_solver(params).solution;
+    return funcWrapper::rk4<false>(t0, t1, dt, y0, std::forward<F>(deriv), CallBackFunc{}).solution;
 }
 
 template<typename... Args>
