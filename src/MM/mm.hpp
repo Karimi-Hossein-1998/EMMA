@@ -3,9 +3,8 @@
 // Umbrella header for the Mathematical Modelling (MM) toolkit.
 //
 // Aggregates the actively-maintained components. The legacy adaptive-step and
-// delay (DDE) solver headers (and the old `SolverParameters`-based utilities)
-// are intentionally excluded: they still reference the removed `SolverParameters`
-// type (now `ODESolverParameters`) and are not part of the current build.
+// delay (DDE) solver headers (which referenced the removed `SolverParameters`
+// type) have been removed; re-add them if they are ever revived.
 // -----------------------------------------------------------------------------
 
 #include "initializers/initials.hpp"
