@@ -3,6 +3,7 @@
 #include "MM/models/kuramoto/general.hpp"
 #include "MM/models/kuramoto/sparse.hpp"
 #include "MM/models/kuramoto/special.hpp"
+#include "MM/models/OA-Ansatz.hpp"
 #include "MM/solvers/ODE/rk/explicit/rk1-solver.hpp"
 #include "MM/solvers/ODE/rk/explicit/rk2-solver.hpp"
 #include "MM/solvers/ODE/rk/explicit/rk3-solver.hpp"
@@ -80,13 +81,19 @@ inline MathEngine::SolverFunc adams_bashforth_moulton_wrapper()
 
 enum class ModelType
 {
-	Kuramoto=0
+	Kuramoto=0,
+	OttAntonsen
 };
 enum class KuramotoType
 {
     KuramotoGeneral=0,
     KuramotoSparse,
     KuramotoSpecial
+};
+enum class OAType
+{
+    OASingle=0,
+    OAGeneral
 };
 enum class SolverMethod
 {
@@ -141,8 +148,23 @@ struct GeneralModelParams
     size_t sModules = 50;
     ModelType modelType = ModelType::Kuramoto;
     KuramotoType kuramotoType = KuramotoType::KuramotoGeneral;
+    OAType oaType = OAType::OASingle;
     int modelSelectedIndex = 0;
     int kuramotoModelSelectedIndex = 0;
+    int oaModelSelectedIndex = 0;
+    // Ott-Antonsen (single community): uses `K` (coupling) plus these Lorentzian params.
+    double oaGamma = 1.0;
+    double oaMu    = 0.0;
+    // Ott-Antonsen (general / multi-community).
+    size_t oaC = 2;              // number of communities
+    double oaRho  = 0.5;         // initial order-parameter magnitude
+    double oaPhi  = 0.0;         // initial order-parameter phase
+    int    oaSeed = 41;          // seed for random per-community initial conditions
+    MathEngine::dVec     oaGammas;   // per-community gamma (size C)
+    MathEngine::dVec     oaMus;      // per-community mu    (size C)
+    MathEngine::dVec     oaEta;      // per-community population fractions (size C)
+    MathEngine::dMatrix  oaK;        // C x C coupling strengths
+    MathEngine::dVec     oaIC;       // initial state (interleaved Re/Im)
     GeneralModelParams(size_t n=50) : N(n) {};
 };
 struct DistParams
@@ -249,7 +271,7 @@ constexpr SaveArtifact SaveArtifacts[] = {
     { "Intrinsic Frequencies",  "InitialConditions", "IntrinsicFrequencies.csv", ModelType::Kuramoto, false, &SaveParams::saveFrequencies    },
     { "Solution",               "Solution",          "Solution.csv",             ModelType::Kuramoto, true,  &SaveParams::saveSolution       },
     { "Time Points",            "Solution",          "TimePoints.csv",           ModelType::Kuramoto, true,  &SaveParams::saveTimePoints     },
-    { "Order Parameter",        "Analysis",          "OrderParameter.csv",       ModelType::Kuramoto, false, &SaveParams::saveOrderParameter },
+    { "Order Parameter",        "Analysis",          "OrderParameter.csv",       ModelType::Kuramoto, true,  &SaveParams::saveOrderParameter },
 };
 constexpr int SaveArtifactCount = static_cast<int>(sizeof(SaveArtifacts) / sizeof(SaveArtifacts[0]));
 static_assert(SaveArtifactCount == static_cast<int>(SaveArtifactKind::Count), "SaveArtifact table must match SaveArtifactKind");
@@ -349,8 +371,9 @@ class AppState
             DrawPlotWindow();
         }
 	private:
-        static constexpr const char* modelNames[] = {"Kuramoto"};
+        static constexpr const char* modelNames[] = {"Kuramoto", "Ott-Antonsen"};
         static constexpr const char* kuramotoModelNames[] = {"Kuramoto (General)", "Kuramoto (Sparse)", "Kuramoto (Modular)"};
+        static constexpr const char* oaModelNames[] = {"OA (Single Community)", "OA (Multi-community)"};
         static constexpr const char* adjNames[] = {"Random (Uniform)", "Random (Uniform Symmetric)", "Erdos-Renyi",
             "Erdos-Renyi (True Count)","Erdos-Renyi (Symmetric)", "Erdos-Renyi (Symmetric True Count)",
             "Small World", "Small World (Directed)", "Modular", "Hierarchical"};
@@ -572,7 +595,16 @@ inline std::filesystem::path AppState::BuildDefaultOutputPath()
         default: solver = "RK4"; break;
     }
 
-    const std::string folderName = "Kuramoto-" + kType + "-" + topo + "-N" + std::to_string(modelParams.N) + "-" + solver;
+    std::string folderName;
+    if (modelParams.modelType==ModelType::OttAntonsen)
+    {
+        const std::string oaType = (modelParams.oaType==OAType::OASingle) ? "Single" : "General";
+        folderName = "OttAntonsen-" + oaType + "-C" + std::to_string(modelParams.oaC) + "-" + solver;
+    }
+    else
+    {
+        folderName = "Kuramoto-" + kType + "-" + topo + "-N" + std::to_string(modelParams.N) + "-" + solver;
+    }
     return std::filesystem::path(saveParams.outputDir) / folderName;
 }
 
@@ -730,11 +762,11 @@ inline void AppState::DrawSavePanelContent()
 inline void AppState::DrawModelPanelContent()
 {
     ImGui::SeparatorText("Model Configuration");
-    if (ImGui::Combo("Model Type",&modelParams.modelSelectedIndex, modelNames,1))
+    if (ImGui::Combo("Model Type",&modelParams.modelSelectedIndex, modelNames,2))
     {
         modelParams.modelType = static_cast<ModelType>(modelParams.modelSelectedIndex);
     }
-    if (modelParams.modelType==static_cast<ModelType>(0))
+    if (modelParams.modelType==ModelType::Kuramoto)
     {
         if (ImGui::Combo("Kuramoto Type",&modelParams.kuramotoModelSelectedIndex,kuramotoModelNames,3))
         {
@@ -764,10 +796,50 @@ inline void AppState::DrawModelPanelContent()
                 break;
         }
     }
+    else if (modelParams.modelType==ModelType::OttAntonsen)
+    {
+        if (ImGui::Combo("OA Type",&modelParams.oaModelSelectedIndex,oaModelNames,2))
+        {
+            modelParams.oaType=static_cast<OAType>(modelParams.oaModelSelectedIndex);
+        }
+        ImGui::Spacing();
+        switch (modelParams.oaType)
+        {
+            case OAType::OASingle:
+                ImGui::InputDouble("Coupling (K)", &modelParams.K, 0.0001, 0.01, "%.15g");
+                ImGui::InputDouble("Lorentzian Width (gamma)", &modelParams.oaGamma, 0.0001, 0.01, "%.15g");
+                ImGui::InputDouble("Mean Frequency (mu)", &modelParams.oaMu, 0.0001, 0.01, "%.15g");
+                break;
+            case OAType::OAGeneral:
+            {
+                int C = static_cast<int>(modelParams.oaC);
+                if (ImGui::InputInt("Communities (C)", &C, 1, 5)) modelParams.oaC = static_cast<size_t>(std::max(1, C));
+                ImGui::TextDisabled("State dimension: %zu (interleaved Re/Im)", 2 * modelParams.oaC);
+                ImGui::InputDouble("K Intra", &modelParams.K, 0.0001, 0.01, "%.15g");
+                ImGui::InputDouble("K Inter", &modelParams.Q, 0.0001, 0.01, "%.15g");
+                if (ImGui::Button("Generate Coupling Matrix", ImVec2(-1, 0)))
+                {
+                    const size_t c = modelParams.oaC;
+                    modelParams.oaK = MathEngine::dMatrix(c, c, modelParams.Q);
+                    for (size_t i = 0; i < c; ++i) modelParams.oaK[i, i] = modelParams.K;
+                }
+                break;
+            }
+        }
+    }
 }
 
 inline void AppState::DrawTopologyPanelContent()
 {
+    if (modelParams.modelType==ModelType::OttAntonsen)
+    {
+        if (modelParams.oaType==OAType::OASingle)
+            ImGui::TextDisabled("Single community: all-to-all coupling (no topology needed).");
+        else
+            ImGui::TextDisabled("Multi-community coupling matrix is configured in the Model tab.");
+        return;
+    }
+
     if (modelParams.kuramotoType == KuramotoType::KuramotoSpecial) return;
     ImGui::Spacing();
     ImGui::SeparatorText("Network Topology");
@@ -901,6 +973,93 @@ inline void AppState::DrawTopologyPanelContent()
 
 inline void AppState::DrawInitialsPanelContent()
 {
+    if (modelParams.modelType==ModelType::OttAntonsen)
+    {
+        ImGui::SeparatorText("Initial Order Parameters");
+        ImGui::InputDouble("Initial rho (|r|)", &modelParams.oaRho, 0.0001, 0.01, "%.15g");
+        if (ImGui::InputDouble("Initial phi (arg r)", &modelParams.oaPhi, 0.0001, 0.01, "%.15g rad"))
+            modelParams.oaPhi = std::clamp(modelParams.oaPhi, -MathEngine::PI, MathEngine::PI);
+        ImGui::InputInt("Seed##OA", &modelParams.oaSeed, 1, 10);
+
+        if (modelParams.oaType==OAType::OAGeneral)
+        {
+            ImGui::Spacing();
+            ImGui::SeparatorText("Community Parameters");
+            if (ImGui::Button("Generate gamma/mu/eta", ImVec2(-1, 0)))
+            {
+                size_t seedVal = static_cast<size_t>(std::max(1, modelParams.oaSeed));
+                const size_t C = modelParams.oaC;
+                modelParams.oaGammas = MathEngine::random_uniform(C, 0.5, 1.5, seedVal);
+                modelParams.oaMus    = MathEngine::random_uniform(C, -1.0, 1.0, seedVal + 1);
+                modelParams.oaEta    = MathEngine::dVec(C, 1.0 / static_cast<double>(C));
+            }
+        }
+
+        if (ImGui::Button("Generate Initial Order Parameters", ImVec2(-1, 0)))
+        {
+            size_t seedVal = static_cast<size_t>(std::max(1, modelParams.oaSeed));
+            const size_t C = (modelParams.oaType==OAType::OASingle) ? 1 : modelParams.oaC;
+            MathEngine::dVec rho = MathEngine::random_uniform(C, 0.0, std::max(1e-3, modelParams.oaRho), seedVal);
+            MathEngine::dVec phi = MathEngine::random_uniform(C, -MathEngine::PI, MathEngine::PI, seedVal + 7);
+            modelParams.oaIC.resize(2 * C);
+            for (size_t c = 0; c < C; ++c)
+            {
+                modelParams.oaIC[2*c + 0] = rho[c] * std::cos(phi[c]);
+                modelParams.oaIC[2*c + 1] = rho[c] * std::sin(phi[c]);
+            }
+            solverParams.solverParams.initialConditions = modelParams.oaIC;
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        if (ImGui::Button("Compile Model Function", ImVec2(-1, 35)))
+        {
+            const size_t C = (modelParams.oaType==OAType::OASingle) ? 1 : modelParams.oaC;
+
+            // Ensure initial conditions exist.
+            if (modelParams.oaIC.size() != 2 * C)
+            {
+                modelParams.oaIC.resize(2 * C);
+                for (size_t c = 0; c < C; ++c)
+                {
+                    modelParams.oaIC[2*c + 0] = modelParams.oaRho * std::cos(modelParams.oaPhi);
+                    modelParams.oaIC[2*c + 1] = modelParams.oaRho * std::sin(modelParams.oaPhi);
+                }
+            }
+            solverParams.solverParams.initialConditions = modelParams.oaIC;
+
+            if (modelParams.oaType==OAType::OASingle)
+            {
+                MathEngine::OAParams p;
+                p.gamma = modelParams.oaGamma;
+                p.mu    = modelParams.oaMu;
+                p.K     = modelParams.K;
+                solverParams.solverParams.derivative = MathEngine::OA_wrapper(p);
+            }
+            else
+            {
+                const size_t seedVal = static_cast<size_t>(std::max(1, modelParams.oaSeed));
+                if (modelParams.oaGammas.size() != C) modelParams.oaGammas = MathEngine::random_uniform(C, 0.5, 1.5, seedVal);
+                if (modelParams.oaMus.size()    != C) modelParams.oaMus    = MathEngine::random_uniform(C, -1.0, 1.0, seedVal + 1);
+                if (modelParams.oaEta.size()    != C) modelParams.oaEta    = MathEngine::dVec(C, 1.0 / static_cast<double>(C));
+                if (modelParams.oaK.Rows() != C || modelParams.oaK.Cols() != C)
+                {
+                    modelParams.oaK = MathEngine::dMatrix(C, C, modelParams.Q);
+                    for (size_t i = 0; i < C; ++i) modelParams.oaK[i, i] = modelParams.K;
+                }
+
+                MathEngine::OAGeneralParams p;
+                p.gammas = modelParams.oaGammas;
+                p.mus    = modelParams.oaMus;
+                p.eta    = modelParams.oaEta;
+                p.K      = modelParams.oaK;
+                p.C      = static_cast<int>(C);
+                solverParams.solverParams.derivative = MathEngine::OAGeneral_wrapper(p);
+            }
+        }
+        return;
+    }
+
     ImGui::SeparatorText("Initial Phases");
     if (ImGui::Combo("Phase Dist", &phaseParams.typeIndex, dsStateNames, 8))
         phaseParams.initState = static_cast<MathEngine::InitState>(phaseParams.typeIndex);
@@ -1415,6 +1574,9 @@ inline void AppState::StartSimulation()
     // constexpr size_t Stride = 25;
     const size_t vectorSize = static_cast<size_t>((solverParams.solverParams.t1-solverParams.solverParams.t0)/solverParams.solverParams.dt);
     const size_t plotExpectedSize = static_cast<size_t>(vectorSize/plotParams.Stride)*2+100;
+    const bool isOA = (modelParams.modelType==ModelType::OttAntonsen);
+    const bool isOAGeneral = isOA && (modelParams.oaType==OAType::OAGeneral);
+    const size_t oaC = modelParams.oaC;
     {
 		std::lock_guard<std::mutex> lock(plotParams.plotMutex);
         plotParams.liveTimePoints.clear();
@@ -1425,25 +1587,48 @@ inline void AppState::StartSimulation()
         plotParams.plotY.reserve(plotExpectedSize);
         plotParams.plotXTrail.clear();
         plotParams.plotYTrail.clear();
-        plotParams.plotYModules = MathEngine::dMatrix(modelParams.nModules, 0);
+        plotParams.plotYModules = MathEngine::dMatrix(isOAGeneral ? oaC : modelParams.nModules, 0);
         plotParams.offset = 0;
     }
     int stride = plotParams.Stride;
-    bool condPlotThird = (modelParams.kuramotoType==KuramotoType::KuramotoSpecial || adjParams.adjState==MathEngine::NetworkTopology::Modular ||
-    					adjParams.adjState==MathEngine::NetworkTopology::Hierarchical);
-    solverParams.solverParams.onStep = [this, stepCount=0, stepCountCond=0, stride, condPlotThird](const MathEngine::OneStepSolverResult& res) mutable
+    bool condPlotThird = isOAGeneral ||
+        (modelParams.kuramotoType==KuramotoType::KuramotoSpecial || adjParams.adjState==MathEngine::NetworkTopology::Modular ||
+         adjParams.adjState==MathEngine::NetworkTopology::Hierarchical);
+    solverParams.solverParams.onStep = [this, isOA, isOAGeneral, oaC, stepCount=0, stepCountCond=0, stride, condPlotThird](const MathEngine::OneStepSolverResult& res) mutable
     {
 		float progress = (res.timePoint-solverParams.solverParams.t0)*timeInv;
         std::lock_guard<std::mutex> lock(plotParams.plotMutex);
         simProgress.store(progress);
         double rSine = 0.0, rCosine = 0.0, rho = 0.0;
-        MathEngine::dVec rMSine(modelParams.nModules,0.0);
-        MathEngine::dVec rMCosine(modelParams.nModules,0.0);
-        MathEngine::dVec rhoM(modelParams.nModules,0.0);
+        MathEngine::dVec rhoM;
         plotParams.liveTimePoints.push_back(res.timePoint);
         plotParams.liveState = res.sol;
-        if (condPlotThird)
+        if (isOA)
         {
+            // OA: the state is already the order parameters (interleaved Re/Im).
+            const size_t C = isOAGeneral ? oaC : 1;
+            double sre = 0.0, sim = 0.0;
+            rhoM.assign(C, 0.0);
+            for (size_t c = 0; c < C; ++c)
+            {
+                const double x = res.sol[2*c + 0];
+                const double y = res.sol[2*c + 1];
+                rhoM[c] = std::hypot(x, y);
+                const double w = (modelParams.oaEta.size() == C) ? modelParams.oaEta[c] : (1.0 / static_cast<double>(C));
+                sre += w * x;
+                sim += w * y;
+            }
+            rho = std::hypot(sre, sim);
+            if (isOAGeneral && ++stepCountCond%stride==0)
+            {
+                plotParams.plotYModules.AppendCols(rhoM);
+            }
+        }
+        else if (condPlotThird)
+        {
+            MathEngine::dVec rMSine(modelParams.nModules,0.0);
+            MathEngine::dVec rMCosine(modelParams.nModules,0.0);
+            rhoM.assign(modelParams.nModules, 0.0);
             for (size_t i=0; i<modelParams.nModules; ++i)
             {
                 for (size_t j=0; j<modelParams.sModules; ++j)
@@ -1533,7 +1718,6 @@ inline void AppState::DrawProgressBar()
 inline void AppState::DrawPlotWindow()
 {
     std::lock_guard<std::mutex> lock(plotParams.plotMutex);
-    if (modelParams.modelType==ModelType::Kuramoto)
     {
         if (plotParams.showPlot)
         {
@@ -1600,7 +1784,7 @@ inline void AppState::DrawPlotWindow()
             }
             ImGui::End();
         }
-        if (plotParams.showPlotSecond)
+        if (modelParams.modelType==ModelType::Kuramoto && plotParams.showPlotSecond)
         {
             const ImGuiViewport* viewport = ImGui::GetMainViewport();
             ImVec2 center = viewport->GetCenter();
@@ -1632,6 +1816,7 @@ inline void AppState::DrawPlotWindow()
         }
         if (plotParams.showPlotThird)
         {
+            const size_t nM = (modelParams.modelType==ModelType::OttAntonsen) ? modelParams.oaC : modelParams.nModules;
             const ImGuiViewport* viewport = ImGui::GetMainViewport();
             ImVec2 center = viewport->GetCenter();
             ImGui::SetNextWindowPos(center, ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
@@ -1639,7 +1824,7 @@ inline void AppState::DrawPlotWindow()
             if (ImGui::Begin("Order Parameter (Modules)##mocules",&plotParams.showPlotThird))
             {
                 ImVec2 availableSpace = ImGui::GetContentRegionAvail();      // Set ImVec(-1,-1) to fill the whole window.
-                if (plotParams.plotYModules.empty() || plotParams.plotYModules.Rows()!=modelParams.nModules)
+                if (plotParams.plotYModules.empty() || plotParams.plotYModules.Rows()!=nM)
                 {
                     if (ImPlot::BeginPlot("(\U0001D70C-t) Plot (empty modules)##modules",availableSpace))
                     {
@@ -1662,7 +1847,7 @@ inline void AppState::DrawPlotWindow()
                             auto [xmin,xmax] = std::minmax_element(plotParams.plotX.begin(),plotParams.plotX.end());
                             xmm = {*xmin-0.01,*xmax+0.01};
                             MathEngine::dVec ymms;
-                            for (size_t i=0; i<modelParams.nModules; ++i)
+                            for (size_t i=0; i<nM; ++i)
                             {
                                 auto [ymin_,ymax_] = std::minmax_element(plotParams.plotYModules[i].begin(),plotParams.plotYModules[i].end());
                                 ymms.push_back(*ymin_); ymms.push_back(*ymax_);
@@ -1673,7 +1858,7 @@ inline void AppState::DrawPlotWindow()
                         ImPlot::SetupAxesLimits(xmm.first,xmm.second,ymm.first,ymm.second,ImPlotCond_Always);
                         ImPlot::SetupAxes("Time (t)","Order (\U0001D70C)");
                         std::string label = "\U0001D70C";
-                        for (size_t i=0; i<modelParams.nModules; ++i)
+                        for (size_t i=0; i<nM; ++i)
                         {
                             label = "\U0001D70C "+std::to_string(i);
                             ImPlotSpec spec;
@@ -1693,21 +1878,21 @@ inline void AppState::DrawPlotWindow()
 
 inline void AppState::DrawPlotPanelContent()
 {
+    ImGui::SeparatorText("Plot Data Style");
+    if (ImGui::CollapsingHeader("\U0001D70C-t Plot##main plot"))
+    {
+        if (ImGui::InputInt("Stride##main plot",&plotParams.Stride,1,10)) plotParams.Stride = std::max(plotParams.Stride,10);
+        if (ImGui::InputInt("Trailing Data Count##main plot",&plotParams.trailCount,1,10)) plotParams.trailCount = std::clamp(plotParams.trailCount,100,10000);
+        ImGui::Checkbox("Show \U0001D70C-t Plot##main plot", &plotParams.showPlot);
+        ImGui::Spacing();
+        ImGui::SeparatorText("Line Color##main plot");
+        ImGui::Spacing();
+        if (plotParams.plotColors.empty())
+            plotParams.plotColors.push_back(ImVec4(0.2f,0.8f,0.8f,1.0f));
+        ImGui::ColorEdit4("\U0001D70C-t Colors (main)",&plotParams.plotColors[0].x);
+    }
     if (modelParams.modelType==ModelType::Kuramoto)
     {
-        ImGui::SeparatorText("Plot Data Style");
-        if (ImGui::CollapsingHeader("\U0001D70C-t Plot##main plot"))
-        {
-            if (ImGui::InputInt("Stride##main plot",&plotParams.Stride,1,10)) plotParams.Stride = std::max(plotParams.Stride,10);
-            if (ImGui::InputInt("Trailing Data Count##main plot",&plotParams.trailCount,1,10)) plotParams.trailCount = std::clamp(plotParams.trailCount,100,10000);
-            ImGui::Checkbox("Show \U0001D70C-t Plot##main plot", &plotParams.showPlot);
-            ImGui::Spacing();
-            ImGui::SeparatorText("Line Color##main plot");
-            ImGui::Spacing();
-            if (plotParams.plotColors.empty())
-                plotParams.plotColors.push_back(ImVec4(0.2f,0.8f,0.8f,1.0f));
-            ImGui::ColorEdit4("\U0001D70C-t Colors (main)",&plotParams.plotColors[0].x);
-        }
         if (ImGui::CollapsingHeader("\U0001D73D Plot##second plot"))
         {
             ImGui::Checkbox("Show \U0001D73D Plot", &plotParams.showPlotSecond);
@@ -1718,22 +1903,26 @@ inline void AppState::DrawPlotPanelContent()
                 plotParams.plotSecondColors.push_back(ImVec4(0.2f,0.8f,0.8f,1.0f));
             ImGui::ColorEdit4("\U0001D73D Colors",&plotParams.plotSecondColors[0].x);
         }
-        if (adjParams.adjState==MathEngine::NetworkTopology::Modular || adjParams.adjState==MathEngine::NetworkTopology::Hierarchical || modelParams.kuramotoType==KuramotoType::KuramotoSpecial)
+    }
+    const bool showModules = (modelParams.modelType==ModelType::OttAntonsen && modelParams.oaType==OAType::OAGeneral)
+        || adjParams.adjState==MathEngine::NetworkTopology::Modular
+        || adjParams.adjState==MathEngine::NetworkTopology::Hierarchical
+        || modelParams.kuramotoType==KuramotoType::KuramotoSpecial;
+    if (showModules)
+    {
+        if (ImGui::CollapsingHeader("\U0001D73D Plot (Modules)##third plot"))
         {
-            if (ImGui::CollapsingHeader("\U0001D73D Plot (Modules)##third plot"))
+            ImGui::Checkbox("Show \U0001D73D Plot##third plot", &plotParams.showPlotThird);
+            ImGui::Spacing();
+            ImGui::SeparatorText("Line Color##third plot");
+            ImGui::Spacing();
+            size_t nM = (modelParams.modelType==ModelType::OttAntonsen) ? modelParams.oaC : modelParams.nModules;
+            if (plotParams.plotThirdColors.size()!=nM)
+                plotParams.plotThirdColors.resize(nM,ImVec4(0.2f,0.8f,0.8f,1.0f));
+            for (size_t i=0; i<nM; ++i)
             {
-                ImGui::Checkbox("Show \U0001D73D Plot##third plot", &plotParams.showPlotThird);
-                ImGui::Spacing();
-                ImGui::SeparatorText("Line Color##third plot");
-                ImGui::Spacing();
-                size_t nM = modelParams.nModules;
-                if (plotParams.plotThirdColors.size()!=nM)
-                    plotParams.plotThirdColors.resize(nM,ImVec4(0.2f,0.8f,0.8f,1.0f));
-                for (size_t i=0; i<nM; ++i)
-                {
-                    std::string label = "\U0001D70C-t ("+std::to_string(i+1)+")##third plot line";
-                    ImGui::ColorEdit4(label.c_str(),&plotParams.plotThirdColors[i].x);
-                }
+                std::string label = "\U0001D70C-t ("+std::to_string(i+1)+")##third plot line";
+                ImGui::ColorEdit4(label.c_str(),&plotParams.plotThirdColors[i].x);
             }
         }
     }
