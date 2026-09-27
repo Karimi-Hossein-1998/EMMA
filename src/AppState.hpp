@@ -3,6 +3,7 @@
 #include "MM/models/kuramoto/general.hpp"
 #include "MM/models/kuramoto/sparse.hpp"
 #include "MM/models/kuramoto/special.hpp"
+#include "MM/models/OA-Ansatz.hpp"
 #include "MM/solvers/ODE/rk/explicit/rk1-solver.hpp"
 #include "MM/solvers/ODE/rk/explicit/rk2-solver.hpp"
 #include "MM/solvers/ODE/rk/explicit/rk3-solver.hpp"
@@ -80,13 +81,19 @@ inline MathEngine::SolverFunc adams_bashforth_moulton_wrapper()
 
 enum class ModelType
 {
-	Kuramoto=0
+	Kuramoto=0,
+	OttAntonsen
 };
 enum class KuramotoType
 {
     KuramotoGeneral=0,
     KuramotoSparse,
     KuramotoSpecial
+};
+enum class OAType
+{
+    OASingle=0,
+    OAGeneral
 };
 enum class SolverMethod
 {
@@ -141,8 +148,22 @@ struct GeneralModelParams
     size_t sModules = 50;
     ModelType modelType = ModelType::Kuramoto;
     KuramotoType kuramotoType = KuramotoType::KuramotoGeneral;
+    OAType oaType = OAType::OASingle;
     int modelSelectedIndex = 0;
     int kuramotoModelSelectedIndex = 0;
+    int oaModelSelectedIndex = 0;
+    // Ott-Antonsen (single community): uses `K` (coupling) plus these Lorentzian params.
+    double oaGamma = 1.0;
+    double oaMu    = 0.0;
+    // Ott-Antonsen (general / multi-community).
+    size_t oaC = 2;              // number of communities
+    double oaRho  = 0.5;         // fallback initial order-parameter magnitude
+    double oaPhi  = 0.0;         // fallback initial order-parameter phase
+    MathEngine::dVec     oaGammas;   // per-community gamma (size C)
+    MathEngine::dVec     oaMus;      // per-community mu    (size C)
+    MathEngine::dVec     oaEta;      // per-community population fractions (size C)
+    MathEngine::dMatrix  oaK;        // C x C coupling strengths
+    MathEngine::dVec     oaIC;       // initial state (interleaved Re/Im)
     GeneralModelParams(size_t n=50) : N(n) {};
 };
 struct DistParams
@@ -213,6 +234,11 @@ struct SaveParams
     bool saveSolution       = true;
     bool saveTimePoints     = true;
     bool saveOrderParameter = true;
+    bool saveOAInitial      = true;
+    bool saveOAGamma        = true;
+    bool saveOAMu           = true;
+    bool saveOAEta          = true;
+    bool saveOACoupling     = true;
     bool binary             = false;
     bool append             = false;
     int  precision          = 15;
@@ -232,6 +258,11 @@ enum class SaveArtifactKind : int
     Solution,
     TimePoints,
     OrderParameter,
+    OAInitialOrder,
+    OAGamma,
+    OAMu,
+    OAEta,
+    OACoupling,
     Count
 };
 struct SaveArtifact
@@ -249,7 +280,12 @@ constexpr SaveArtifact SaveArtifacts[] = {
     { "Intrinsic Frequencies",  "InitialConditions", "IntrinsicFrequencies.csv", ModelType::Kuramoto, false, &SaveParams::saveFrequencies    },
     { "Solution",               "Solution",          "Solution.csv",             ModelType::Kuramoto, true,  &SaveParams::saveSolution       },
     { "Time Points",            "Solution",          "TimePoints.csv",           ModelType::Kuramoto, true,  &SaveParams::saveTimePoints     },
-    { "Order Parameter",        "Analysis",          "OrderParameter.csv",       ModelType::Kuramoto, false, &SaveParams::saveOrderParameter },
+    { "Order Parameter",        "Analysis",          "OrderParameter.csv",       ModelType::Kuramoto, true,  &SaveParams::saveOrderParameter },
+    { "Initial Order Parameters","InitialConditions", "InitialOrderParameters.csv", ModelType::OttAntonsen, false, &SaveParams::saveOAInitial  },
+    { "Lorentzian Width (gamma)","InitialConditions", "Gamma.csv",                 ModelType::OttAntonsen, false, &SaveParams::saveOAGamma    },
+    { "Lorentzian Center (mu)",  "InitialConditions", "Mu.csv",                    ModelType::OttAntonsen, false, &SaveParams::saveOAMu       },
+    { "Population Fractions (eta)","InitialConditions","Eta.csv",                  ModelType::OttAntonsen, false, &SaveParams::saveOAEta      },
+    { "Coupling Matrix (K)",     "Topology",         "CouplingMatrix.csv",         ModelType::OttAntonsen, false, &SaveParams::saveOACoupling },
 };
 constexpr int SaveArtifactCount = static_cast<int>(sizeof(SaveArtifacts) / sizeof(SaveArtifacts[0]));
 static_assert(SaveArtifactCount == static_cast<int>(SaveArtifactKind::Count), "SaveArtifact table must match SaveArtifactKind");
@@ -265,6 +301,11 @@ class AppState
         GeneralModelParams modelParams = GeneralModelParams(50);
         DistParams phaseParams;
         DistParams frqncParams;
+        DistParams oaRhoParams{0.0, 0.5};               // initial order magnitude (rho)
+        DistParams oaPhiParams{-MathEngine::PI, MathEngine::PI}; // initial order phase (phi)
+        DistParams oaGammaParams{0.5, 1.5};             // Lorentzian half-width
+        DistParams oaMuParams{-1.0, 1.0};               // Lorentzian center
+        DistParams oaEtaParams;                         // population fractions (normalized)
         NetParams adjParams;
         SolverParams solverParams;
         PlotParams plotParams;
@@ -287,6 +328,7 @@ class AppState
         size_t initW = 800;
         size_t initH = 600;
         std::atomic<bool> isSimRunning{false};
+        std::thread simThread;
         bool showStyleEditor=false;
         bool showDelays=false;
         bool showPlot=false;
@@ -294,6 +336,12 @@ class AppState
         bool DarkTheme=true;
         bool showAbout=false;
         int activeSidebarTab = -1; // -1 = drawer closed (no section selected)
+
+        ~AppState()
+        {
+            // Join the simulation thread (if any) on shutdown to avoid std::terminate.
+            if (simThread.joinable()) simThread.join();
+        }
 
         inline void RenderUI()
         {
@@ -349,8 +397,9 @@ class AppState
             DrawPlotWindow();
         }
 	private:
-        static constexpr const char* modelNames[] = {"Kuramoto"};
+        static constexpr const char* modelNames[] = {"Kuramoto", "Ott-Antonsen"};
         static constexpr const char* kuramotoModelNames[] = {"Kuramoto (General)", "Kuramoto (Sparse)", "Kuramoto (Modular)"};
+        static constexpr const char* oaModelNames[] = {"OA (Single Community)", "OA (Multi-community)"};
         static constexpr const char* adjNames[] = {"Random (Uniform)", "Random (Uniform Symmetric)", "Erdos-Renyi",
             "Erdos-Renyi (True Count)","Erdos-Renyi (Symmetric)", "Erdos-Renyi (Symmetric True Count)",
             "Small World", "Small World (Directed)", "Modular", "Hierarchical"};
@@ -364,6 +413,9 @@ class AppState
         };
         inline void DrawModelPanelContent();
         inline void DrawTopologyPanelContent();
+        inline MathEngine::dMatrix GenerateOACouplingMatrix();
+        inline void DrawInitDistPicker(DistParams& p, const char* label);
+        inline MathEngine::dVec GenerateOAVector(const DistParams& p, size_t C, int seedOffset = 0);
 		inline void DrawInitialsPanelContent();
 		inline void DrawODESolverParametersPanelContent();
 		inline void RenderModals();
@@ -383,6 +435,7 @@ class AppState
         inline MathEngine::IO::WriteOptions MakeWriteOptions(const std::filesystem::path& filePath, std::string_view header = {});
         inline bool ArtifactApplies(const SaveArtifact& artifact) const;
         inline bool WriteArtifactData(SaveArtifactKind kind, const std::filesystem::path& filePath);
+        inline void DrawVectorViewer(bool& open, const char* title, const MathEngine::dVec& data, const char* emptyText);
 };
 
 inline bool AppState::DrawActivityButton(const char* icon, const char* title, bool active)
@@ -572,7 +625,16 @@ inline std::filesystem::path AppState::BuildDefaultOutputPath()
         default: solver = "RK4"; break;
     }
 
-    const std::string folderName = "Kuramoto-" + kType + "-" + topo + "-N" + std::to_string(modelParams.N) + "-" + solver;
+    std::string folderName;
+    if (modelParams.modelType==ModelType::OttAntonsen)
+    {
+        const std::string oaType = (modelParams.oaType==OAType::OASingle) ? "Single" : "General";
+        folderName = "OttAntonsen-" + oaType + "-C" + std::to_string(modelParams.oaC) + "-" + solver;
+    }
+    else
+    {
+        folderName = "Kuramoto-" + kType + "-" + topo + "-N" + std::to_string(modelParams.N) + "-" + solver;
+    }
     return std::filesystem::path(saveParams.outputDir) / folderName;
 }
 
@@ -648,6 +710,37 @@ inline bool AppState::WriteArtifactData(SaveArtifactKind kind, const std::filesy
             MathEngine::IO::WriteMatrix(op, MakeWriteOptions(filePath, header));
             return true;
         }
+        case SaveArtifactKind::OAInitialOrder:
+        {
+            if (modelParams.oaIC.empty()) return false;
+            const size_t C = modelParams.oaIC.size() / 2;
+            MathEngine::dMatrix op(C, 2, 0.0); // [rho, phi]
+            for (size_t c = 0; c < C; ++c)
+            {
+                const double x = modelParams.oaIC[2*c + 0];
+                const double y = modelParams.oaIC[2*c + 1];
+                op[c, 0] = std::hypot(x, y);
+                op[c, 1] = std::atan2(y, x);
+            }
+            MathEngine::IO::WriteMatrix(op, MakeWriteOptions(filePath, "Initial order parameters (rho, phi)"));
+            return true;
+        }
+        case SaveArtifactKind::OAGamma:
+            if (modelParams.oaGammas.empty()) return false;
+            MathEngine::IO::WriteVector(std::span<const double>(modelParams.oaGammas), MakeWriteOptions(filePath, "Lorentzian half-width (gamma)"));
+            return true;
+        case SaveArtifactKind::OAMu:
+            if (modelParams.oaMus.empty()) return false;
+            MathEngine::IO::WriteVector(std::span<const double>(modelParams.oaMus), MakeWriteOptions(filePath, "Lorentzian center (mu)"));
+            return true;
+        case SaveArtifactKind::OAEta:
+            if (modelParams.oaEta.empty()) return false;
+            MathEngine::IO::WriteVector(std::span<const double>(modelParams.oaEta), MakeWriteOptions(filePath, "Population fractions (eta)"));
+            return true;
+        case SaveArtifactKind::OACoupling:
+            if (modelParams.oaK.empty()) return false;
+            MathEngine::IO::WriteMatrix(modelParams.oaK, MakeWriteOptions(filePath, "Community coupling matrix (K)"));
+            return true;
         default: return false;
     }
 }
@@ -730,11 +823,11 @@ inline void AppState::DrawSavePanelContent()
 inline void AppState::DrawModelPanelContent()
 {
     ImGui::SeparatorText("Model Configuration");
-    if (ImGui::Combo("Model Type",&modelParams.modelSelectedIndex, modelNames,1))
+    if (ImGui::Combo("Model Type",&modelParams.modelSelectedIndex, modelNames,2))
     {
         modelParams.modelType = static_cast<ModelType>(modelParams.modelSelectedIndex);
     }
-    if (modelParams.modelType==static_cast<ModelType>(0))
+    if (modelParams.modelType==ModelType::Kuramoto)
     {
         if (ImGui::Combo("Kuramoto Type",&modelParams.kuramotoModelSelectedIndex,kuramotoModelNames,3))
         {
@@ -764,13 +857,50 @@ inline void AppState::DrawModelPanelContent()
                 break;
         }
     }
+    else if (modelParams.modelType==ModelType::OttAntonsen)
+    {
+        if (ImGui::Combo("OA Type",&modelParams.oaModelSelectedIndex,oaModelNames,2))
+        {
+            modelParams.oaType=static_cast<OAType>(modelParams.oaModelSelectedIndex);
+        }
+        ImGui::Spacing();
+        switch (modelParams.oaType)
+        {
+            case OAType::OASingle:
+                ImGui::InputDouble("Coupling (K)", &modelParams.K, 0.0001, 0.01, "%.15g");
+                ImGui::InputDouble("Lorentzian Width (gamma)", &modelParams.oaGamma, 0.0001, 0.01, "%.15g");
+                ImGui::InputDouble("Mean Frequency (mu)", &modelParams.oaMu, 0.0001, 0.01, "%.15g");
+                break;
+            case OAType::OAGeneral:
+            {
+                int C = static_cast<int>(modelParams.oaC);
+                if (ImGui::InputInt("Communities (C)", &C, 1, 5)) modelParams.oaC = static_cast<size_t>(std::max(1, C));
+                ImGui::TextDisabled("State dimension: %zu (interleaved Re/Im)", 2 * modelParams.oaC);
+                ImGui::TextDisabled("Coupling matrix (K) is generated in the Topology tab.");
+                break;
+            }
+        }
+    }
 }
 
 inline void AppState::DrawTopologyPanelContent()
 {
-    if (modelParams.kuramotoType == KuramotoType::KuramotoSpecial) return;
+    const bool isOAGeneral = (modelParams.modelType==ModelType::OttAntonsen) && (modelParams.oaType==OAType::OAGeneral);
+
+    if (modelParams.modelType==ModelType::OttAntonsen && modelParams.oaType==OAType::OASingle)
+    {
+        ImGui::TextDisabled("Single community: all-to-all coupling (no topology needed).");
+        return;
+    }
+    if (!isOAGeneral && modelParams.kuramotoType == KuramotoType::KuramotoSpecial) return;
+
     ImGui::Spacing();
-    ImGui::SeparatorText("Network Topology");
+    ImGui::SeparatorText(isOAGeneral ? "Community Coupling (K)" : "Network Topology");
+    if (isOAGeneral)
+    {
+        ImGui::TextDisabled("C = %zu communities", modelParams.oaC);
+        ImGui::InputDouble("K Intra (diagonal)", &modelParams.K, 0.0001, 0.01, "%.15g");
+    }
     if (ImGui::Combo("Topology Type", &adjParams.adjSelectedIndex, adjNames, 10))
     {
         adjParams.adjState = static_cast<MathEngine::NetworkTopology>(adjParams.adjSelectedIndex);
@@ -799,108 +929,345 @@ inline void AppState::DrawTopologyPanelContent()
                 adjParams.meanDegree=std::max(0,adjParams.meanDegree);
             break;
         case MathEngine::NetworkTopology::Modular: {
-            int sM = static_cast<int>(adjParams.sModulesM);
-            int nM = static_cast<int>(adjParams.nModulesM);
-            if (ImGui::InputInt("Module Size", &sM, 1, 10)) adjParams.sModulesM = std::max(1, sM);
-            if (ImGui::InputInt("Number of Modules", &nM, 1, 10)) adjParams.nModulesM = std::max(1, nM);
-            ImGui::InputDouble("In Weight", &adjParams.weightIn, 0.0001, 0.01, "%.15g");
-            ImGui::InputDouble("Out Weight", &adjParams.weightOut, 0.0001, 0.01, "%.15g");
-            if (ImGui::InputDouble("Inner Prob", &adjParams.probIn, 0.0001, 0.01, "%.15g"))
-                adjParams.probIn = std::clamp(adjParams.probIn, 0.0, 1.0);
-            if (ImGui::InputDouble("Outer Prob", &adjParams.probOut, 0.0001, 0.01, "%.15g"))
-                adjParams.probOut = std::clamp(adjParams.probOut, 0.0, 1.0);
+            if (isOAGeneral)
+            {
+                int C = static_cast<int>(modelParams.oaC);
+                if (ImGui::InputInt("Communities (C)", &C, 1, 5)) modelParams.oaC = static_cast<size_t>(std::max(1, C));
+                ImGui::InputDouble("Out Weight", &adjParams.weightOut, 0.0001, 0.01, "%.15g");
+                if (ImGui::InputDouble("Outer Prob", &adjParams.probOut, 0.0001, 0.01, "%.15g"))
+                    adjParams.probOut = std::clamp(adjParams.probOut, 0.0, 1.0);
+            }
+            else
+            {
+                int sM = static_cast<int>(adjParams.sModulesM);
+                int nM = static_cast<int>(adjParams.nModulesM);
+                if (ImGui::InputInt("Module Size", &sM, 1, 10)) adjParams.sModulesM = std::max(1, sM);
+                if (ImGui::InputInt("Number of Modules", &nM, 1, 10)) adjParams.nModulesM = std::max(1, nM);
+                ImGui::InputDouble("In Weight", &adjParams.weightIn, 0.0001, 0.01, "%.15g");
+                ImGui::InputDouble("Out Weight", &adjParams.weightOut, 0.0001, 0.01, "%.15g");
+                if (ImGui::InputDouble("Inner Prob", &adjParams.probIn, 0.0001, 0.01, "%.15g"))
+                    adjParams.probIn = std::clamp(adjParams.probIn, 0.0, 1.0);
+                if (ImGui::InputDouble("Outer Prob", &adjParams.probOut, 0.0001, 0.01, "%.15g"))
+                    adjParams.probOut = std::clamp(adjParams.probOut, 0.0, 1.0);
+            }
             break;
         }
         case MathEngine::NetworkTopology::Hierarchical: {
-            int sB = static_cast<int>(adjParams.sModulesBase);
-            int nB = static_cast<int>(adjParams.nModulesBase);
-            int hL = static_cast<int>(adjParams.hLevels);
-            if (ImGui::InputInt("Module Size##h", &sB, 1, 10)) adjParams.sModulesBase = std::max(1, sB);
-            if (ImGui::InputInt("Number of Modules##h", &nB, 1, 10)) adjParams.nModulesBase = std::max(1, nB);
-            if (ImGui::InputInt("Hierarchy Levels##h", &hL, 1, 10)) adjParams.hLevels = std::max(1, hL);
-            ImGui::InputDouble("In Weight##h", &adjParams.weightIn, 0.0001, 0.01, "%.15g");
-            ImGui::InputDouble("Out Weight##h", &adjParams.weightOut, 0.0001, 0.01, "%.15g");
-            if (ImGui::InputDouble("Inner Prob##h", &adjParams.probIn, 0.0001, 0.01, "%.15g"))
-                adjParams.probIn = std::clamp(adjParams.probIn, 0.0, 1.0);
-            if (ImGui::InputDouble("Outer Prob##h", &adjParams.probOut, 0.0001, 0.01, "%.15g"))
-                adjParams.probOut = std::clamp(adjParams.probOut, 0.0, 1.0);
-            if (ImGui::InputDouble("Decay Ratio", &adjParams.decayRatio, 0.001, 0.1, "%.15g"))
-                adjParams.decayRatio = std::clamp(adjParams.decayRatio, 0.0, 1.0);
+            if (isOAGeneral)
+            {
+                int nB = static_cast<int>(adjParams.nModulesBase);
+                int hL = static_cast<int>(adjParams.hLevels);
+                if (ImGui::InputInt("Base Modules", &nB, 1, 10)) adjParams.nModulesBase = std::max(1, nB);
+                if (ImGui::InputInt("Hierarchy Levels", &hL, 1, 10)) adjParams.hLevels = std::max(1, hL);
+                ImGui::TextDisabled("C = %zu communities (derived)", adjParams.nModulesBase * (static_cast<size_t>(1) << (adjParams.hLevels - 1)));
+                ImGui::InputDouble("Out Weight", &adjParams.weightOut, 0.0001, 0.01, "%.15g");
+                if (ImGui::InputDouble("Outer Prob", &adjParams.probOut, 0.0001, 0.01, "%.15g"))
+                    adjParams.probOut = std::clamp(adjParams.probOut, 0.0, 1.0);
+                if (ImGui::InputDouble("Decay Ratio", &adjParams.decayRatio, 0.001, 0.1, "%.15g"))
+                    adjParams.decayRatio = std::clamp(adjParams.decayRatio, 0.0, 1.0);
+            }
+            else
+            {
+                int sB = static_cast<int>(adjParams.sModulesBase);
+                int nB = static_cast<int>(adjParams.nModulesBase);
+                int hL = static_cast<int>(adjParams.hLevels);
+                if (ImGui::InputInt("Module Size##h", &sB, 1, 10)) adjParams.sModulesBase = std::max(1, sB);
+                if (ImGui::InputInt("Number of Modules##h", &nB, 1, 10)) adjParams.nModulesBase = std::max(1, nB);
+                if (ImGui::InputInt("Hierarchy Levels##h", &hL, 1, 10)) adjParams.hLevels = std::max(1, hL);
+                ImGui::InputDouble("In Weight##h", &adjParams.weightIn, 0.0001, 0.01, "%.15g");
+                ImGui::InputDouble("Out Weight##h", &adjParams.weightOut, 0.0001, 0.01, "%.15g");
+                if (ImGui::InputDouble("Inner Prob##h", &adjParams.probIn, 0.0001, 0.01, "%.15g"))
+                    adjParams.probIn = std::clamp(adjParams.probIn, 0.0, 1.0);
+                if (ImGui::InputDouble("Outer Prob##h", &adjParams.probOut, 0.0001, 0.01, "%.15g"))
+                    adjParams.probOut = std::clamp(adjParams.probOut, 0.0, 1.0);
+                if (ImGui::InputDouble("Decay Ratio", &adjParams.decayRatio, 0.001, 0.1, "%.15g"))
+                    adjParams.decayRatio = std::clamp(adjParams.decayRatio, 0.0, 1.0);
+            }
             break;
         }
     }
     ImGui::InputInt("Seed##Adj", &adjParams.seed, 1, 10);
-    if (ImGui::Button("Generate Adjacency", ImVec2(-1, 0)))
+    if (ImGui::Button(isOAGeneral ? "Generate Coupling Matrix" : "Generate Adjacency", ImVec2(-1, 0)))
     {
-        size_t seedVal = static_cast<size_t>(std::max(1, adjParams.seed));
-        switch (adjParams.adjState)
+        if (isOAGeneral)
         {
-            case MathEngine::NetworkTopology::Uniform:
-                adj = MathEngine::random(modelParams.N,adjParams.weightMin,adjParams.weightMax,seedVal);
-                break;
-            case MathEngine::NetworkTopology::UniformSymmetric:
-                adj = MathEngine::random_symmetric(modelParams.N,adjParams.weightMin,adjParams.weightMax,seedVal);
-                break;
-            case MathEngine::NetworkTopology::ErdosRenyi:
-                adj = MathEngine::erdos_renyi(modelParams.N,adjParams.prob,adjParams.weightMin,adjParams.weightMax,seedVal);
-                break;
-            case MathEngine::NetworkTopology::ErdosRenyiUniform:
-                adj = MathEngine::erdos_renyi_uniform(modelParams.N,adjParams.prob,adjParams.weightMin,adjParams.weightMax,seedVal);
-                break;
-            case MathEngine::NetworkTopology::ErdosRenyiSymmetric:
-                adj = MathEngine::erdos_renyi_symmetric(modelParams.N,adjParams.prob,adjParams.weightMin,adjParams.weightMax,seedVal);
-                break;
-            case MathEngine::NetworkTopology::ErdosRenyiSymmetricUniform:
-                adj = MathEngine::erdos_renyi_symmetric_uniform(modelParams.N,adjParams.prob,adjParams.weightMin,adjParams.weightMax,seedVal);
-                break;
-            case MathEngine::NetworkTopology::SmallWorld:
-                adj = MathEngine::small_world(modelParams.N,adjParams.meanDegree,adjParams.prob,adjParams.weight,seedVal);
-                break;
-            case MathEngine::NetworkTopology::SmallWorldDirected:
-                adj = MathEngine::small_world_directed(modelParams.N,adjParams.meanDegree,adjParams.prob,adjParams.weight,seedVal);
-                break;
-            case MathEngine::NetworkTopology::Modular:
-                modelParams.sModules = adjParams.sModulesM;
-                modelParams.nModules = adjParams.nModulesM;
-                modelParams.N = modelParams.sModules * modelParams.nModules;
-                adj = MathEngine::modular(modelParams.sModules,modelParams.nModules,adjParams.probIn,adjParams.probOut,
-                                          adjParams.weightIn,adjParams.weightOut,
-                                          seedVal);
-                break;
-            case MathEngine::NetworkTopology::Hierarchical:
-                modelParams.sModules = adjParams.sModulesBase;
-                modelParams.nModules = adjParams.nModulesBase * static_cast<size_t>(std::pow(2, adjParams.hLevels - 1));
-                modelParams.N = modelParams.sModules * modelParams.nModules;
-                adj = MathEngine::hierarchical(adjParams.sModulesBase,adjParams.hLevels,adjParams.probIn, adjParams.probOut,
-                                               adjParams.weightIn,adjParams.weightOut, adjParams.decayRatio, seedVal,
-                                               adjParams.nModulesBase);
-                break;
+            modelParams.oaK = GenerateOACouplingMatrix();
         }
-
-        if (modelParams.kuramotoType == KuramotoType::KuramotoSparse)
+        else
         {
-            sparseAdj = MathEngine::dense_to_sparse(adj);
-        }
-        for (size_t i=0; i<modelParams.N; ++i)
-        {
-            for (size_t j=0; j<modelParams.N; ++j)
+            size_t seedVal = static_cast<size_t>(std::max(1, adjParams.seed));
+            switch (adjParams.adjState)
             {
-                char adjs[64];
-                snprintf(adjs,sizeof(adjs),"%.15g",adj[i][j]);
-                cellWidthBase = std::max(cellWidthBase,ImGui::CalcTextSize(adjs).x);
-                if (cellHeightBase ==1.0f) cellHeightBase = ImGui::CalcTextSize(adjs).y;
+                case MathEngine::NetworkTopology::Uniform:
+                    adj = MathEngine::random(modelParams.N,adjParams.weightMin,adjParams.weightMax,seedVal);
+                    break;
+                case MathEngine::NetworkTopology::UniformSymmetric:
+                    adj = MathEngine::random_symmetric(modelParams.N,adjParams.weightMin,adjParams.weightMax,seedVal);
+                    break;
+                case MathEngine::NetworkTopology::ErdosRenyi:
+                    adj = MathEngine::erdos_renyi(modelParams.N,adjParams.prob,adjParams.weightMin,adjParams.weightMax,seedVal);
+                    break;
+                case MathEngine::NetworkTopology::ErdosRenyiUniform:
+                    adj = MathEngine::erdos_renyi_uniform(modelParams.N,adjParams.prob,adjParams.weightMin,adjParams.weightMax,seedVal);
+                    break;
+                case MathEngine::NetworkTopology::ErdosRenyiSymmetric:
+                    adj = MathEngine::erdos_renyi_symmetric(modelParams.N,adjParams.prob,adjParams.weightMin,adjParams.weightMax,seedVal);
+                    break;
+                case MathEngine::NetworkTopology::ErdosRenyiSymmetricUniform:
+                    adj = MathEngine::erdos_renyi_symmetric_uniform(modelParams.N,adjParams.prob,adjParams.weightMin,adjParams.weightMax,seedVal);
+                    break;
+                case MathEngine::NetworkTopology::SmallWorld:
+                    adj = MathEngine::small_world(modelParams.N,adjParams.meanDegree,adjParams.prob,adjParams.weight,seedVal);
+                    break;
+                case MathEngine::NetworkTopology::SmallWorldDirected:
+                    adj = MathEngine::small_world_directed(modelParams.N,adjParams.meanDegree,adjParams.prob,adjParams.weight,seedVal);
+                    break;
+                case MathEngine::NetworkTopology::Modular:
+                    modelParams.sModules = adjParams.sModulesM;
+                    modelParams.nModules = adjParams.nModulesM;
+                    modelParams.N = modelParams.sModules * modelParams.nModules;
+                    adj = MathEngine::modular(modelParams.sModules,modelParams.nModules,adjParams.probIn,adjParams.probOut,
+                                              adjParams.weightIn,adjParams.weightOut,
+                                              seedVal);
+                    break;
+                case MathEngine::NetworkTopology::Hierarchical:
+                    modelParams.sModules = adjParams.sModulesBase;
+                    modelParams.nModules = adjParams.nModulesBase * static_cast<size_t>(std::pow(2, adjParams.hLevels - 1));
+                    modelParams.N = modelParams.sModules * modelParams.nModules;
+                    adj = MathEngine::hierarchical(adjParams.sModulesBase,adjParams.hLevels,adjParams.probIn, adjParams.probOut,
+                                                   adjParams.weightIn,adjParams.weightOut, adjParams.decayRatio, seedVal,
+                                                   adjParams.nModulesBase);
+                    break;
+            }
+
+            if (modelParams.kuramotoType == KuramotoType::KuramotoSparse)
+            {
+                sparseAdj = MathEngine::dense_to_sparse(adj);
+            }
+            for (size_t i=0; i<modelParams.N; ++i)
+            {
+                for (size_t j=0; j<modelParams.N; ++j)
+                {
+                    char adjs[64];
+                    snprintf(adjs,sizeof(adjs),"%.15g",adj[i][j]);
+                    cellWidthBase = std::max(cellWidthBase,ImGui::CalcTextSize(adjs).x);
+                    if (cellHeightBase ==1.0f) cellHeightBase = ImGui::CalcTextSize(adjs).y;
+                }
             }
         }
     }
 
-    if (ImGui::Button("View Matrix Values", ImVec2(-1, 0)))
+    if (ImGui::Button(isOAGeneral ? "View Coupling Matrix" : "View Matrix Values", ImVec2(-1, 0)))
     {
         adjParams.showAdjMatrix = true;
     }
 }
 
+inline MathEngine::dMatrix AppState::GenerateOACouplingMatrix()
+{
+    const size_t seedVal = static_cast<size_t>(std::max(1, adjParams.seed));
+    MathEngine::dMatrix K;
+    switch (adjParams.adjState)
+    {
+        case MathEngine::NetworkTopology::Uniform:
+            K = MathEngine::random(modelParams.oaC, adjParams.weightMin, adjParams.weightMax, seedVal); break;
+        case MathEngine::NetworkTopology::UniformSymmetric:
+            K = MathEngine::random_symmetric(modelParams.oaC, adjParams.weightMin, adjParams.weightMax, seedVal); break;
+        case MathEngine::NetworkTopology::ErdosRenyi:
+            K = MathEngine::erdos_renyi(modelParams.oaC, adjParams.prob, adjParams.weightMin, adjParams.weightMax, seedVal); break;
+        case MathEngine::NetworkTopology::ErdosRenyiUniform:
+            K = MathEngine::erdos_renyi_uniform(modelParams.oaC, adjParams.prob, adjParams.weightMin, adjParams.weightMax, seedVal); break;
+        case MathEngine::NetworkTopology::ErdosRenyiSymmetric:
+            K = MathEngine::erdos_renyi_symmetric(modelParams.oaC, adjParams.prob, adjParams.weightMin, adjParams.weightMax, seedVal); break;
+        case MathEngine::NetworkTopology::ErdosRenyiSymmetricUniform:
+            K = MathEngine::erdos_renyi_symmetric_uniform(modelParams.oaC, adjParams.prob, adjParams.weightMin, adjParams.weightMax, seedVal); break;
+        case MathEngine::NetworkTopology::SmallWorld:
+            K = MathEngine::small_world(modelParams.oaC, adjParams.meanDegree, adjParams.prob, adjParams.weight, seedVal); break;
+        case MathEngine::NetworkTopology::SmallWorldDirected:
+            K = MathEngine::small_world_directed(modelParams.oaC, adjParams.meanDegree, adjParams.prob, adjParams.weight, seedVal); break;
+        case MathEngine::NetworkTopology::Modular:
+            K = MathEngine::modular(1, modelParams.oaC, adjParams.probIn, adjParams.probOut, adjParams.weightIn, adjParams.weightOut, seedVal); break;
+        case MathEngine::NetworkTopology::Hierarchical:
+            modelParams.oaC = adjParams.nModulesBase * (static_cast<size_t>(1) << (adjParams.hLevels - 1));
+            K = MathEngine::hierarchical(1, adjParams.hLevels, adjParams.probIn, adjParams.probOut,
+                                         adjParams.weightIn, adjParams.weightOut, adjParams.decayRatio,
+                                         seedVal, adjParams.nModulesBase);
+            break;
+        default:
+            K = MathEngine::random(modelParams.oaC, adjParams.weightMin, adjParams.weightMax, seedVal); break;
+    }
+    // Add the intra-community coupling on the diagonal.
+    for (size_t c = 0; c < K.Rows(); ++c) K[c, c] = modelParams.K;
+    return K;
+}
+
+inline void AppState::DrawInitDistPicker(DistParams& p, const char* label)
+{
+    char buf[128];
+    if (ImGui::Combo(label, &p.typeIndex, moduleTypeNames, 7))
+        p.initState = static_cast<MathEngine::InitState>(p.typeIndex);
+
+    switch (p.initState)
+    {
+        case MathEngine::InitState::Uniform:
+            snprintf(buf, sizeof(buf), "Min##%s", label);
+            ImGui::InputDouble(buf, &p.minVal, 0.0001, 0.01, "%.15g");
+            snprintf(buf, sizeof(buf), "Max##%s", label);
+            if (ImGui::InputDouble(buf, &p.maxVal, 0.0001, 0.01, "%.15g"))
+                p.maxVal = std::max(p.minVal, p.maxVal);
+            break;
+        case MathEngine::InitState::Normal:
+            snprintf(buf, sizeof(buf), "Mean##%s", label);
+            ImGui::InputDouble(buf, &p.mean, 0.0001, 0.01, "%.15g");
+            snprintf(buf, sizeof(buf), "Stddev##%s", label);
+            if (ImGui::InputDouble(buf, &p.stddev, 0.0001, 0.01, "%.15g"))
+                p.stddev = std::max(1e-5, p.stddev);
+            break;
+        case MathEngine::InitState::Cauchy:
+            snprintf(buf, sizeof(buf), "Location##%s", label);
+            ImGui::InputDouble(buf, &p.location, 0.0001, 0.01, "%.15g");
+            snprintf(buf, sizeof(buf), "Scale##%s", label);
+            if (ImGui::InputDouble(buf, &p.scale, 0.0001, 0.01, "%.15g"))
+                p.scale = std::max(1e-5, p.scale);
+            break;
+        case MathEngine::InitState::Exponential:
+            snprintf(buf, sizeof(buf), "Rate##%s", label);
+            if (ImGui::InputDouble(buf, &p.rate, 0.0001, 0.01, "%.15g"))
+                p.rate = std::max(1e-5, p.rate);
+            break;
+        case MathEngine::InitState::SplayPerturbed:
+            snprintf(buf, sizeof(buf), "Perturbation##%s", label);
+            ImGui::InputDouble(buf, &p.perturbation, 0.000001, 0.0001, "%.15g");
+            break;
+        default: break;
+    }
+}
+
+inline MathEngine::dVec AppState::GenerateOAVector(const DistParams& p, size_t C, int seedOffset)
+{
+    const size_t seedVal = static_cast<size_t>(std::max(1, p.seed + seedOffset));
+    switch (p.initState)
+    {
+        case MathEngine::InitState::Uniform:        return MathEngine::random_uniform(C, p.minVal, p.maxVal, seedVal);
+        case MathEngine::InitState::Normal:         return MathEngine::random_normal(C, p.mean, p.stddev, seedVal);
+        case MathEngine::InitState::Cauchy:         return MathEngine::random_cauchy(C, p.location, p.scale, seedVal);
+        case MathEngine::InitState::Exponential:    return MathEngine::random_exponential(C, p.rate, seedVal);
+        case MathEngine::InitState::Circle:         return MathEngine::random_circle<double>(C, seedVal);
+        case MathEngine::InitState::Splay:          return MathEngine::splay<double>(C);
+        case MathEngine::InitState::SplayPerturbed: return MathEngine::splay_perturbed(C, p.perturbation, seedVal);
+        default:                                    return MathEngine::random_uniform(C, p.minVal, p.maxVal, seedVal);
+    }
+}
+
 inline void AppState::DrawInitialsPanelContent()
 {
+    if (modelParams.modelType==ModelType::OttAntonsen)
+    {
+        ImGui::SeparatorText("Initial Order Parameters");
+        DrawInitDistPicker(oaRhoParams, "rho (magnitude)");
+        DrawInitDistPicker(oaPhiParams, "phi (phase)");
+        ImGui::InputInt("Seed##OA-IC", &oaRhoParams.seed, 1, 10);
+        oaPhiParams.seed = oaRhoParams.seed;
+        if (ImGui::Button("Generate Initial Order Parameters", ImVec2(-1, 0)))
+        {
+            const size_t C = (modelParams.oaType==OAType::OASingle) ? 1 : modelParams.oaC;
+            MathEngine::dVec rho = GenerateOAVector(oaRhoParams, C);
+            MathEngine::dVec phi = GenerateOAVector(oaPhiParams, C, 7);
+            for (double& r : rho) r = std::clamp(std::abs(r), 0.0, 1.0);
+            modelParams.oaIC.resize(2 * C);
+            for (size_t c = 0; c < C; ++c)
+            {
+                modelParams.oaIC[2*c + 0] = rho[c] * std::cos(phi[c]);
+                modelParams.oaIC[2*c + 1] = rho[c] * std::sin(phi[c]);
+            }
+            solverParams.solverParams.initialConditions = modelParams.oaIC;
+        }
+        if (ImGui::Button("View Order Parameters", ImVec2(-1, 0))) oaRhoParams.showArray = true;
+
+        if (modelParams.oaType==OAType::OAGeneral)
+        {
+            ImGui::Spacing();
+            ImGui::SeparatorText("Lorentzian Parameters (gamma, mu)");
+            DrawInitDistPicker(oaGammaParams, "gamma (width)");
+            DrawInitDistPicker(oaMuParams, "mu (center)");
+            ImGui::InputInt("Seed##OA-Lor", &oaGammaParams.seed, 1, 10);
+            oaMuParams.seed = oaGammaParams.seed;
+            if (ImGui::Button("Generate gamma/mu", ImVec2(-1, 0)))
+            {
+                const size_t C = modelParams.oaC;
+                modelParams.oaGammas = GenerateOAVector(oaGammaParams, C);
+                for (double& g : modelParams.oaGammas) g = std::abs(g) + 1e-6;
+                modelParams.oaMus = GenerateOAVector(oaMuParams, C, 1);
+            }
+            if (ImGui::Button("View gamma", ImVec2(-1, 0))) oaGammaParams.showArray = true;
+            if (ImGui::Button("View mu", ImVec2(-1, 0))) oaMuParams.showArray = true;
+
+            ImGui::Spacing();
+            ImGui::SeparatorText("Population Fractions (eta)");
+            DrawInitDistPicker(oaEtaParams, "eta (fractions)");
+            ImGui::InputInt("Seed##OA-Eta", &oaEtaParams.seed, 1, 10);
+            if (ImGui::Button("Generate eta", ImVec2(-1, 0)))
+            {
+                const size_t C = modelParams.oaC;
+                modelParams.oaEta = GenerateOAVector(oaEtaParams, C);
+                double s = 0.0;
+                for (double& e : modelParams.oaEta) { e = std::abs(e); s += e; }
+                if (s > 0.0) { for (double& e : modelParams.oaEta) e /= s; }
+                else modelParams.oaEta.assign(C, 1.0 / static_cast<double>(C));
+            }
+            if (ImGui::Button("View eta", ImVec2(-1, 0))) oaEtaParams.showArray = true;
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        if (ImGui::Button("Compile Model Function", ImVec2(-1, 35)))
+        {
+            if (modelParams.oaType==OAType::OAGeneral && modelParams.oaK.Rows() != modelParams.oaC)
+            {
+                modelParams.oaK = GenerateOACouplingMatrix();
+            }
+
+            const size_t C = (modelParams.oaType==OAType::OASingle) ? 1 : modelParams.oaC;
+
+            // Ensure initial conditions exist.
+            if (modelParams.oaIC.size() != 2 * C)
+            {
+                modelParams.oaIC.resize(2 * C);
+                for (size_t c = 0; c < C; ++c)
+                {
+                    modelParams.oaIC[2*c + 0] = modelParams.oaRho * std::cos(modelParams.oaPhi);
+                    modelParams.oaIC[2*c + 1] = modelParams.oaRho * std::sin(modelParams.oaPhi);
+                }
+            }
+            solverParams.solverParams.initialConditions = modelParams.oaIC;
+
+            if (modelParams.oaType==OAType::OASingle)
+            {
+                MathEngine::OAParams p;
+                p.gamma = modelParams.oaGamma;
+                p.mu    = modelParams.oaMu;
+                p.K     = modelParams.K;
+                solverParams.solverParams.derivative = MathEngine::OA_wrapper(p);
+            }
+            else
+            {
+                if (modelParams.oaGammas.size() != C) modelParams.oaGammas = GenerateOAVector(oaGammaParams, C);
+                if (modelParams.oaMus.size()    != C) modelParams.oaMus    = GenerateOAVector(oaMuParams, C, 1);
+                if (modelParams.oaEta.size()    != C) modelParams.oaEta.assign(C, 1.0 / static_cast<double>(C));
+                for (double& g : modelParams.oaGammas) g = std::abs(g) + 1e-6;
+
+                MathEngine::OAGeneralParams p;
+                p.gammas = modelParams.oaGammas;
+                p.mus    = modelParams.oaMus;
+                p.eta    = modelParams.oaEta;
+                p.K      = modelParams.oaK;
+                p.C      = static_cast<int>(C);
+                solverParams.solverParams.derivative = MathEngine::OAGeneral_wrapper(p);
+            }
+        }
+        return;
+    }
+
     ImGui::SeparatorText("Initial Phases");
     if (ImGui::Combo("Phase Dist", &phaseParams.typeIndex, dsStateNames, 8))
         phaseParams.initState = static_cast<MathEngine::InitState>(phaseParams.typeIndex);
@@ -1223,6 +1590,27 @@ inline void AppState::DrawODESolverParametersPanelContent()
     // }
 }
 
+inline void AppState::DrawVectorViewer(bool& open, const char* title, const MathEngine::dVec& data, const char* emptyText)
+{
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImVec2 center = viewport->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(500, 480), ImGuiCond_Appearing);
+    if (ImGui::Begin(title, &open))
+    {
+        if (ImGui::BeginChild("VecList", ImVec2(0, 330), ImGuiChildFlags_Borders))
+        {
+            if (data.empty())
+                ImGui::TextDisabled("%s", emptyText);
+            else
+                for (size_t i = 0; i < data.size(); ++i)
+                    ImGui::Text("[%03zu]  %.15g", i + 1, data[i]);
+        }
+        ImGui::EndChild();
+    }
+    ImGui::End();
+}
+
 inline void AppState::RenderModals()
 {
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -1232,16 +1620,18 @@ inline void AppState::RenderModals()
     {
         ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
         ImGui::SetNextWindowSize(ImVec2(550, 480), ImGuiCond_Appearing);
-        if (ImGui::Begin("Adjacency Matrix Viewer", &adjParams.showAdjMatrix))
+        const MathEngine::dMatrix& m = (modelParams.modelType==ModelType::OttAntonsen) ? modelParams.oaK : adj;
+        const char* viewerTitle = (modelParams.modelType==ModelType::OttAntonsen) ? "Coupling Matrix Viewer" : "Adjacency Matrix Viewer";
+        if (ImGui::Begin(viewerTitle, &adjParams.showAdjMatrix))
         {
-            size_t nRows = adj.size();
-            size_t nCols = nRows > 0 ? adj[0].size() : 0;
+            size_t nRows = m.Rows();
+            size_t nCols = m.Cols();
             ImGui::Text("Dimension: %zu x %zu", nRows, nCols);
             ImGui::Separator();
 
             if (nRows == 0 || nCols == 0)
             {
-                ImGui::TextDisabled("Matrix is Empty. Generate an Adjacency Matrix first.");
+                ImGui::TextDisabled("Matrix is empty. Generate it first.");
             }
             else
             {
@@ -1276,7 +1666,7 @@ inline void AppState::RenderModals()
                             for (int c=minCol; c<maxCol; ++c)
                             {
                                 ImGui::SetCursorPos(ImVec2((c+1)*cellWidth+5.0f,(r+1)*cellHeight));
-                                double val = adj[r][c];
+                                double val = m[r][c];
                                 if (val >= 1e-5) ImGui::TextColored(ImVec4(0.4f, 0.9f, 1.0f, 1.0f), "%.15g", val);
                                 else ImGui::TextDisabled("0.0000");
                             }
@@ -1308,7 +1698,7 @@ inline void AppState::RenderModals()
                             for (size_t c = 0; c < nCols; ++c)
                             {
                                 ImGui::TableSetColumnIndex(static_cast<int>(c + 1));
-                                double val = adj[r][c];
+                                double val = m[r][c];
                                 if (val >= 1e-5) ImGui::Text("%.15g", val);
                                 else ImGui::TextDisabled("0.0000");
                             }
@@ -1371,6 +1761,39 @@ inline void AppState::RenderModals()
         ImGui::End();
     }
 
+    // ---- Ott-Antonsen view modals ----
+    if (oaRhoParams.showArray)
+    {
+        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowSize(ImVec2(500, 480), ImGuiCond_Appearing);
+        if (ImGui::Begin("Initial Order Parameters", &oaRhoParams.showArray))
+        {
+            if (ImGui::BeginChild("OAList", ImVec2(0, 330), ImGuiChildFlags_Borders))
+            {
+                if (modelParams.oaIC.empty())
+                    ImGui::TextDisabled("Array is empty. Click Generate Initial Order Parameters.");
+                else
+                {
+                    const size_t C = modelParams.oaIC.size() / 2;
+                    for (size_t c = 0; c < C; ++c)
+                    {
+                        const double x = modelParams.oaIC[2*c + 0];
+                        const double y = modelParams.oaIC[2*c + 1];
+                        ImGui::Text("[%03zu]  rho=%.15g  phi=%.15g", c + 1, std::hypot(x, y), std::atan2(y, x));
+                    }
+                }
+            }
+            ImGui::EndChild();
+        }
+        ImGui::End();
+    }
+    if (oaGammaParams.showArray)
+        DrawVectorViewer(oaGammaParams.showArray, "Lorentzian Width (gamma)", modelParams.oaGammas, "Array is empty. Click Generate gamma/mu.");
+    if (oaMuParams.showArray)
+        DrawVectorViewer(oaMuParams.showArray, "Lorentzian Center (mu)", modelParams.oaMus, "Array is empty. Click Generate gamma/mu.");
+    if (oaEtaParams.showArray)
+        DrawVectorViewer(oaEtaParams.showArray, "Population Fractions (eta)", modelParams.oaEta, "Array is empty. Click Generate eta.");
+
     // if (showDelays)
     // {
     //     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
@@ -1408,6 +1831,12 @@ inline void AppState::RenderModals()
 
 inline void AppState::StartSimulation()
 {
+    // Do not start a new simulation while one is still running.
+    if (isSimRunning.load()) return;
+
+    // Reap any previous (finished) simulation thread before launching a new one.
+    if (simThread.joinable()) simThread.join();
+
     processStartTime = std::chrono::steady_clock::now();
     simProgress.store(0.0f);
     isSimRunning.store(true);
@@ -1415,6 +1844,9 @@ inline void AppState::StartSimulation()
     // constexpr size_t Stride = 25;
     const size_t vectorSize = static_cast<size_t>((solverParams.solverParams.t1-solverParams.solverParams.t0)/solverParams.solverParams.dt);
     const size_t plotExpectedSize = static_cast<size_t>(vectorSize/plotParams.Stride)*2+100;
+    const bool isOA = (modelParams.modelType==ModelType::OttAntonsen);
+    const bool isOAGeneral = isOA && (modelParams.oaType==OAType::OAGeneral);
+    const size_t oaC = modelParams.oaC;
     {
 		std::lock_guard<std::mutex> lock(plotParams.plotMutex);
         plotParams.liveTimePoints.clear();
@@ -1425,25 +1857,48 @@ inline void AppState::StartSimulation()
         plotParams.plotY.reserve(plotExpectedSize);
         plotParams.plotXTrail.clear();
         plotParams.plotYTrail.clear();
-        plotParams.plotYModules = MathEngine::dMatrix(modelParams.nModules, 0);
+        plotParams.plotYModules = MathEngine::dMatrix(isOAGeneral ? oaC : modelParams.nModules, 0);
         plotParams.offset = 0;
     }
     int stride = plotParams.Stride;
-    bool condPlotThird = (modelParams.kuramotoType==KuramotoType::KuramotoSpecial || adjParams.adjState==MathEngine::NetworkTopology::Modular ||
-    					adjParams.adjState==MathEngine::NetworkTopology::Hierarchical);
-    solverParams.solverParams.onStep = [this, stepCount=0, stepCountCond=0, stride, condPlotThird](const MathEngine::OneStepSolverResult& res) mutable
+    bool condPlotThird = isOAGeneral ||
+        (modelParams.kuramotoType==KuramotoType::KuramotoSpecial || adjParams.adjState==MathEngine::NetworkTopology::Modular ||
+         adjParams.adjState==MathEngine::NetworkTopology::Hierarchical);
+    solverParams.solverParams.onStep = [this, isOA, isOAGeneral, oaC, stepCount=0, stepCountCond=0, stride, condPlotThird](const MathEngine::OneStepSolverResult& res) mutable
     {
 		float progress = (res.timePoint-solverParams.solverParams.t0)*timeInv;
         std::lock_guard<std::mutex> lock(plotParams.plotMutex);
         simProgress.store(progress);
         double rSine = 0.0, rCosine = 0.0, rho = 0.0;
-        MathEngine::dVec rMSine(modelParams.nModules,0.0);
-        MathEngine::dVec rMCosine(modelParams.nModules,0.0);
-        MathEngine::dVec rhoM(modelParams.nModules,0.0);
+        MathEngine::dVec rhoM;
         plotParams.liveTimePoints.push_back(res.timePoint);
         plotParams.liveState = res.sol;
-        if (condPlotThird)
+        if (isOA)
         {
+            // OA: the state is already the order parameters (interleaved Re/Im).
+            const size_t C = isOAGeneral ? oaC : 1;
+            double sre = 0.0, sim = 0.0;
+            rhoM.assign(C, 0.0);
+            for (size_t c = 0; c < C; ++c)
+            {
+                const double x = res.sol[2*c + 0];
+                const double y = res.sol[2*c + 1];
+                rhoM[c] = std::hypot(x, y);
+                const double w = (modelParams.oaEta.size() == C) ? modelParams.oaEta[c] : (1.0 / static_cast<double>(C));
+                sre += w * x;
+                sim += w * y;
+            }
+            rho = std::hypot(sre, sim);
+            if (isOAGeneral && ++stepCountCond%stride==0)
+            {
+                plotParams.plotYModules.AppendCols(rhoM);
+            }
+        }
+        else if (condPlotThird)
+        {
+            MathEngine::dVec rMSine(modelParams.nModules,0.0);
+            MathEngine::dVec rMCosine(modelParams.nModules,0.0);
+            rhoM.assign(modelParams.nModules, 0.0);
             for (size_t i=0; i<modelParams.nModules; ++i)
             {
                 for (size_t j=0; j<modelParams.sModules; ++j)
@@ -1488,12 +1943,19 @@ inline void AppState::StartSimulation()
         }
     };
 #ifndef __EMSCRIPTEN__
-    std::thread([this]()
+    simThread = std::thread([this]()
     {
-        solverParams.solverResults = solverParams.solverFunc(solverParams.solverParams);
+        try
+        {
+            solverParams.solverResults = solverParams.solverFunc(solverParams.solverParams);
+        }
+        catch (...)
+        {
+            // Keep the UI from getting stuck in "Running..." if the solver throws.
+        }
         simProgress.store(1.0);
         isSimRunning.store(false);
-    }).detach();
+    });
 #else
     // Web: sync run (no pthreads).
     solverParams.solverResults = solverParams.solverFunc(solverParams.solverParams);
@@ -1533,7 +1995,6 @@ inline void AppState::DrawProgressBar()
 inline void AppState::DrawPlotWindow()
 {
     std::lock_guard<std::mutex> lock(plotParams.plotMutex);
-    if (modelParams.modelType==ModelType::Kuramoto)
     {
         if (plotParams.showPlot)
         {
@@ -1600,7 +2061,7 @@ inline void AppState::DrawPlotWindow()
             }
             ImGui::End();
         }
-        if (plotParams.showPlotSecond)
+        if (modelParams.modelType==ModelType::Kuramoto && plotParams.showPlotSecond)
         {
             const ImGuiViewport* viewport = ImGui::GetMainViewport();
             ImVec2 center = viewport->GetCenter();
@@ -1632,6 +2093,7 @@ inline void AppState::DrawPlotWindow()
         }
         if (plotParams.showPlotThird)
         {
+            const size_t nM = (modelParams.modelType==ModelType::OttAntonsen) ? modelParams.oaC : modelParams.nModules;
             const ImGuiViewport* viewport = ImGui::GetMainViewport();
             ImVec2 center = viewport->GetCenter();
             ImGui::SetNextWindowPos(center, ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
@@ -1639,7 +2101,7 @@ inline void AppState::DrawPlotWindow()
             if (ImGui::Begin("Order Parameter (Modules)##mocules",&plotParams.showPlotThird))
             {
                 ImVec2 availableSpace = ImGui::GetContentRegionAvail();      // Set ImVec(-1,-1) to fill the whole window.
-                if (plotParams.plotYModules.empty() || plotParams.plotYModules.Rows()!=modelParams.nModules)
+                if (plotParams.plotYModules.empty() || plotParams.plotYModules.Rows()!=nM)
                 {
                     if (ImPlot::BeginPlot("(\U0001D70C-t) Plot (empty modules)##modules",availableSpace))
                     {
@@ -1662,7 +2124,7 @@ inline void AppState::DrawPlotWindow()
                             auto [xmin,xmax] = std::minmax_element(plotParams.plotX.begin(),plotParams.plotX.end());
                             xmm = {*xmin-0.01,*xmax+0.01};
                             MathEngine::dVec ymms;
-                            for (size_t i=0; i<modelParams.nModules; ++i)
+                            for (size_t i=0; i<nM; ++i)
                             {
                                 auto [ymin_,ymax_] = std::minmax_element(plotParams.plotYModules[i].begin(),plotParams.plotYModules[i].end());
                                 ymms.push_back(*ymin_); ymms.push_back(*ymax_);
@@ -1673,7 +2135,7 @@ inline void AppState::DrawPlotWindow()
                         ImPlot::SetupAxesLimits(xmm.first,xmm.second,ymm.first,ymm.second,ImPlotCond_Always);
                         ImPlot::SetupAxes("Time (t)","Order (\U0001D70C)");
                         std::string label = "\U0001D70C";
-                        for (size_t i=0; i<modelParams.nModules; ++i)
+                        for (size_t i=0; i<nM; ++i)
                         {
                             label = "\U0001D70C "+std::to_string(i);
                             ImPlotSpec spec;
@@ -1693,21 +2155,21 @@ inline void AppState::DrawPlotWindow()
 
 inline void AppState::DrawPlotPanelContent()
 {
+    ImGui::SeparatorText("Plot Data Style");
+    if (ImGui::CollapsingHeader("\U0001D70C-t Plot##main plot"))
+    {
+        if (ImGui::InputInt("Stride##main plot",&plotParams.Stride,1,10)) plotParams.Stride = std::max(plotParams.Stride,10);
+        if (ImGui::InputInt("Trailing Data Count##main plot",&plotParams.trailCount,1,10)) plotParams.trailCount = std::clamp(plotParams.trailCount,100,10000);
+        ImGui::Checkbox("Show \U0001D70C-t Plot##main plot", &plotParams.showPlot);
+        ImGui::Spacing();
+        ImGui::SeparatorText("Line Color##main plot");
+        ImGui::Spacing();
+        if (plotParams.plotColors.empty())
+            plotParams.plotColors.push_back(ImVec4(0.2f,0.8f,0.8f,1.0f));
+        ImGui::ColorEdit4("\U0001D70C-t Colors (main)",&plotParams.plotColors[0].x);
+    }
     if (modelParams.modelType==ModelType::Kuramoto)
     {
-        ImGui::SeparatorText("Plot Data Style");
-        if (ImGui::CollapsingHeader("\U0001D70C-t Plot##main plot"))
-        {
-            if (ImGui::InputInt("Stride##main plot",&plotParams.Stride,1,10)) plotParams.Stride = std::max(plotParams.Stride,10);
-            if (ImGui::InputInt("Trailing Data Count##main plot",&plotParams.trailCount,1,10)) plotParams.trailCount = std::clamp(plotParams.trailCount,100,10000);
-            ImGui::Checkbox("Show \U0001D70C-t Plot##main plot", &plotParams.showPlot);
-            ImGui::Spacing();
-            ImGui::SeparatorText("Line Color##main plot");
-            ImGui::Spacing();
-            if (plotParams.plotColors.empty())
-                plotParams.plotColors.push_back(ImVec4(0.2f,0.8f,0.8f,1.0f));
-            ImGui::ColorEdit4("\U0001D70C-t Colors (main)",&plotParams.plotColors[0].x);
-        }
         if (ImGui::CollapsingHeader("\U0001D73D Plot##second plot"))
         {
             ImGui::Checkbox("Show \U0001D73D Plot", &plotParams.showPlotSecond);
@@ -1718,22 +2180,26 @@ inline void AppState::DrawPlotPanelContent()
                 plotParams.plotSecondColors.push_back(ImVec4(0.2f,0.8f,0.8f,1.0f));
             ImGui::ColorEdit4("\U0001D73D Colors",&plotParams.plotSecondColors[0].x);
         }
-        if (adjParams.adjState==MathEngine::NetworkTopology::Modular || adjParams.adjState==MathEngine::NetworkTopology::Hierarchical || modelParams.kuramotoType==KuramotoType::KuramotoSpecial)
+    }
+    const bool showModules = (modelParams.modelType==ModelType::OttAntonsen && modelParams.oaType==OAType::OAGeneral)
+        || adjParams.adjState==MathEngine::NetworkTopology::Modular
+        || adjParams.adjState==MathEngine::NetworkTopology::Hierarchical
+        || modelParams.kuramotoType==KuramotoType::KuramotoSpecial;
+    if (showModules)
+    {
+        if (ImGui::CollapsingHeader("\U0001D73D Plot (Modules)##third plot"))
         {
-            if (ImGui::CollapsingHeader("\U0001D73D Plot (Modules)##third plot"))
+            ImGui::Checkbox("Show \U0001D73D Plot##third plot", &plotParams.showPlotThird);
+            ImGui::Spacing();
+            ImGui::SeparatorText("Line Color##third plot");
+            ImGui::Spacing();
+            size_t nM = (modelParams.modelType==ModelType::OttAntonsen) ? modelParams.oaC : modelParams.nModules;
+            if (plotParams.plotThirdColors.size()!=nM)
+                plotParams.plotThirdColors.resize(nM,ImVec4(0.2f,0.8f,0.8f,1.0f));
+            for (size_t i=0; i<nM; ++i)
             {
-                ImGui::Checkbox("Show \U0001D73D Plot##third plot", &plotParams.showPlotThird);
-                ImGui::Spacing();
-                ImGui::SeparatorText("Line Color##third plot");
-                ImGui::Spacing();
-                size_t nM = modelParams.nModules;
-                if (plotParams.plotThirdColors.size()!=nM)
-                    plotParams.plotThirdColors.resize(nM,ImVec4(0.2f,0.8f,0.8f,1.0f));
-                for (size_t i=0; i<nM; ++i)
-                {
-                    std::string label = "\U0001D70C-t ("+std::to_string(i+1)+")##third plot line";
-                    ImGui::ColorEdit4(label.c_str(),&plotParams.plotThirdColors[i].x);
-                }
+                std::string label = "\U0001D70C-t ("+std::to_string(i+1)+")##third plot line";
+                ImGui::ColorEdit4(label.c_str(),&plotParams.plotThirdColors[i].x);
             }
         }
     }
