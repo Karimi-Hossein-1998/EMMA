@@ -615,7 +615,7 @@ inline bool AppState::WriteArtifactData(SaveArtifactKind kind, const std::filesy
                 {
                     // Per-module order parameter (modular / hierarchical systems).
                     const size_t nModules = plotParams.plotYModules.Rows();
-                    const size_t nTime = std::min(plotParams.plotX.size(), plotParams.plotYModules.Cols());
+                    const size_t nTime = std::min(plotParams.plotX.size(), static_cast<size_t>(plotParams.plotYModules.Cols()));
                     if (nTime > 0)
                     {
                         op = MathEngine::dMatrix(nTime, nModules + 1);
@@ -1252,7 +1252,7 @@ inline void AppState::RenderModals()
                     const ImVec2 totalCanvasSize = ImVec2((nCols+1)*cellWidth,(nRows+1)*cellHeight);
                     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,ImVec2(0,0));
                     ImGuiWindowFlags windowFlags = ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_NoCollapse;
-                    if (ImGui::BeginChild("Matrix Grid",ImVec2(0,330), true, windowFlags));
+                    if (ImGui::BeginChild("Matrix Grid",ImVec2(0,330), true, windowFlags))
                     {
                         const float scrollX = ImGui::GetScrollX();
                         const float scrollY = ImGui::GetScrollY();
