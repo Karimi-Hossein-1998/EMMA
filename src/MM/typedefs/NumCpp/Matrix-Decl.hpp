@@ -822,10 +822,10 @@ inline Matrix<T>& Matrix<T>::Transpose() noexcept
         std::vector<T> tdata(nRows*nCols);
         for (size_t r0=0; r0<nRows; r0+=BLOCKSIZE)
         {
-            size_t rMax = std::min(r0+BLOCKSIZE,nRows);
+            size_t rMax = std::min(r0+BLOCKSIZE,static_cast<size_t>(nRows));
             for (size_t c0=0; c0<nCols; c0+=BLOCKSIZE)
             {
-                size_t cMax = std::min(c0+BLOCKSIZE,nCols);
+                size_t cMax = std::min(c0+BLOCKSIZE,static_cast<size_t>(nCols));
                 for (size_t r=r0; r<rMax; ++r)
                     for (size_t c=c0; c<cMax; ++c)
                         tdata[c*nRows+r] = data[r*nCols+c];
