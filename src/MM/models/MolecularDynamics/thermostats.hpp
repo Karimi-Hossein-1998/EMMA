@@ -31,12 +31,15 @@ enum class ThermostatType
 };
 
 // ---- pressure ---------------------------------------------------------------
-// Virial pressure in 2D: P = (N T + 0.5 * virialSum) / V.
+// Virial pressure in 2D: P = (N T - 0.5 * virialSum) / V.
+// `virialSum` accumulates  r_ij . F_ij  with r_ij = r_j - r_i and F_ij the force
+// ON i, which is NEGATIVE for repulsion; the virial theorem therefore enters
+// with a minus sign so that repulsion raises the pressure.
 inline double ComputePressure(MolecularDynamics& md)
 {
     md.ComputeKineticEnergy();
     const double virial = md.ComputeVirialSum();
-    return (static_cast<double>(md.numParticles) * md.currentTemperature + 0.5 * virial)
+    return (static_cast<double>(md.numParticles) * md.currentTemperature - 0.5 * virial)
            / md.Volume();
 }
 

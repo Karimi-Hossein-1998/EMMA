@@ -223,12 +223,21 @@ $$
 The 2D virial pressure is
 
 $$
-P = \frac{N T + \tfrac{1}{2}\sum_{i<j}\mathbf{r}_{ij}\cdot\mathbf{f}_{ij}}{V},
+P = \rho T + \frac{1}{2V}\sum_i \mathbf{r}_i\cdot\mathbf{F}_i,
+\qquad \rho = N/V,
+$$
+
+which — with $\mathbf{r}_{ij}=\mathbf{r}_j-\mathbf{r}_i$ and the force
+$\mathbf{f}_{ij}$ **on** particle $i$ — is evaluated as
+
+$$
+P = \frac{N T - \tfrac{1}{2}\sum_{i<j}\mathbf{r}_{ij}\cdot\mathbf{f}_{ij}}{V},
 \qquad V = L_x L_y.
 $$
 
-This follows from the virial theorem $\langle \sum_i \mathbf{r}_i\cdot\mathbf{F}_i\rangle = -d\,N k_B T$
-and the internal-virial contribution of the pairwise forces.
+Repulsive forces have $\mathbf{r}_{ij}\cdot\mathbf{f}_{ij}<0$, so the minus sign
+makes the correction positive: repulsion raises the pressure above the ideal-gas
+value, as required by the virial theorem.
 
 ---
 

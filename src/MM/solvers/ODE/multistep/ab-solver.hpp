@@ -40,7 +40,7 @@ inline SolverResults adams_bashforth(double t0, double t1, double dt, const Vec<
         for (size_t j = 0; j < N; ++j)
             solptr[i*N+j] = res_rk.solution[i,j];
         // solution.SetRow(i, res_rk.solution[i]);
-        timePoints[i + 1] = t0+(i+1)*dt;
+        timePoints[i] = t0+i*dt;
     }
 
     // Store derivative history
