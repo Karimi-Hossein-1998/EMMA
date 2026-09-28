@@ -539,6 +539,12 @@ class AppState
         inline bool ArtifactApplies(const SaveArtifact& artifact) const;
         inline bool WriteArtifactData(SaveArtifactKind kind, const std::filesystem::path& filePath);
         inline void DrawVectorViewer(bool& open, const char* title, const MathEngine::dVec& data, const char* emptyText);
+        // Model-aware labels for the order-parameter plot (rho for phase oscillators,
+        // bond-orientational order psi6 for molecular dynamics).
+        inline bool IsMD() const { return modelParams.modelType==ModelType::MolecularDynamics; }
+        inline const char* OrderSymbol() const { return IsMD() ? "\u03C8\u0036" : "\U0001D70C"; }
+        inline const char* OrderAxisLabel() const { return IsMD() ? "Bond-orientational order (\u03C8\u0036)" : "Order (\U0001D70C)"; }
+        inline const char* OrderWindowTitle() const { return IsMD() ? "Order Parameter (\u03C8\u0036)" : "Order Parameter"; }
 };
 
 inline bool AppState::DrawActivityButton(const char* icon, const char* title, bool active)
@@ -2370,12 +2376,18 @@ inline void AppState::DrawPlotWindow()
             ImVec2 center = viewport->GetCenter();
             ImGui::SetNextWindowPos(center, ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
             ImGui::SetNextWindowSize(ImVec2(400, 480), ImGuiCond_FirstUseEver);
-            if (ImGui::Begin("Order Parameter",&plotParams.showPlot))
+            const char* ordSym = OrderSymbol();
+            const char* ordAxis = OrderAxisLabel();
+            std::string mainPlotTitle = std::string(ordSym) + "-t Plot";
+            std::string trailPlotTitle = std::string(ordSym) + "-t Plot##trailing";
+            char orderWinTitle[96];
+            snprintf(orderWinTitle, sizeof(orderWinTitle), "%s##orderplot", OrderWindowTitle());
+            if (ImGui::Begin(orderWinTitle,&plotParams.showPlot))
             {
                 ImVec2 availableSpace = ImGui::GetContentRegionAvail();      // Set ImVec(-1,-1) to fill the whole window.
                 if (ImPlot::BeginSubplots("##Plot-now", 2, 1, availableSpace))
                 {
-                    if (ImPlot::BeginPlot("(\U0001D70C-t) Plot"))
+                    if (ImPlot::BeginPlot(mainPlotTitle.c_str()))
                     {
                         ImPlotSpec spec;
                         std::pair<double,double> xmm;
@@ -2395,11 +2407,11 @@ inline void AppState::DrawPlotWindow()
                         ImPlot::SetupAxesLimits(xmm.first,xmm.second,ymm.first,ymm.second,ImPlotCond_Always);
                         if (!plotParams.plotColors.empty())
 	                        spec.LineColor = plotParams.plotColors[0];
-                        ImPlot::SetupAxes("Time (t)","Order (\U0001D70C)");
-                        ImPlot::PlotLine("\U0001D70C",plotParams.plotX.data(),plotParams.plotY.data(),static_cast<int>(plotParams.plotX.size()));
+                        ImPlot::SetupAxes("Time (t)",ordAxis);
+                        ImPlot::PlotLine(ordSym,plotParams.plotX.data(),plotParams.plotY.data(),static_cast<int>(plotParams.plotX.size()));
                         ImPlot::EndPlot();
                     }
-                    if (ImPlot::BeginPlot("(\U0001D70C-t) Plot##trailing"))
+                    if (ImPlot::BeginPlot(trailPlotTitle.c_str()))
                     {
                         std::pair<double,double> xmm;
                         std::pair<double,double> ymm;
@@ -2420,8 +2432,8 @@ inline void AppState::DrawPlotWindow()
                         spec.Offset = static_cast<int>(plotParams.offset);
                         if (!plotParams.plotColors.empty())
                             spec.LineColor = plotParams.plotColors[0];
-                        ImPlot::SetupAxes("Time (t)","Order (\U0001D70C)");
-                        ImPlot::PlotLine("\U0001D70C",plotParams.plotXTrail.data(),plotParams.plotYTrail.data(),static_cast<int>(plotParams.plotXTrail.size()),spec);
+                        ImPlot::SetupAxes("Time (t)",ordAxis);
+                        ImPlot::PlotLine(ordSym,plotParams.plotXTrail.data(),plotParams.plotYTrail.data(),static_cast<int>(plotParams.plotXTrail.size()),spec);
                         ImPlot::EndPlot();
                     }
                     ImPlot::EndSubplots();
@@ -2548,17 +2560,21 @@ inline void AppState::DrawPlotWindow()
 inline void AppState::DrawPlotPanelContent()
 {
     ImGui::SeparatorText("Plot Data Style");
-    if (ImGui::CollapsingHeader("\U0001D70C-t Plot##main plot"))
+    const char* ordSym = OrderSymbol();
+    std::string mainPlotHeader = std::string(ordSym) + "-t Plot##main plot";
+    std::string mainShowLabel  = std::string("Show ") + ordSym + "-t Plot##main plot";
+    std::string mainColorLabel = std::string(ordSym) + "-t Colors (main)";
+    if (ImGui::CollapsingHeader(mainPlotHeader.c_str()))
     {
         if (ImGui::InputInt("Stride##main plot",&plotParams.Stride,1,10)) plotParams.Stride = std::max(plotParams.Stride,10);
         if (ImGui::InputInt("Trailing Data Count##main plot",&plotParams.trailCount,1,10)) plotParams.trailCount = std::clamp(plotParams.trailCount,100,10000);
-        ImGui::Checkbox("Show \U0001D70C-t Plot##main plot", &plotParams.showPlot);
+        ImGui::Checkbox(mainShowLabel.c_str(), &plotParams.showPlot);
         ImGui::Spacing();
         ImGui::SeparatorText("Line Color##main plot");
         ImGui::Spacing();
         if (plotParams.plotColors.empty())
             plotParams.plotColors.push_back(ImVec4(0.2f,0.8f,0.8f,1.0f));
-        ImGui::ColorEdit4("\U0001D70C-t Colors (main)",&plotParams.plotColors[0].x);
+        ImGui::ColorEdit4(mainColorLabel.c_str(),&plotParams.plotColors[0].x);
     }
     if (modelParams.modelType==ModelType::Kuramoto || modelParams.modelType==ModelType::MolecularDynamics)
     {
