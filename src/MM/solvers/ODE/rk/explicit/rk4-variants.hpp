@@ -101,7 +101,7 @@ inline SolverResults rk4_ralston(double t0, double t1, double dt, const Vec<doub
 
     Vec<double>  y(y0), y_temp(N,0.0), k1(N, 0.0), k2(N, 0.0), k3(N, 0.0), k4(N, 0.0);
     double c2 = 0.4, c3 = 0.45573725, c4 = 1.0;
-    double a21 = 0.4, a31 = 0.15875964, a32 = 0.29697761, a41 = 0.2181004, a42 = -3.05096516, a43 = 3.83286476;
+    double a21 = 0.4, a31 = 0.29697761, a32 = 0.15875964, a41 = 0.2181004, a42 = -3.05096516, a43 = 3.83286476;
     double b1 = 0.17476028, b2 = -0.55148066, b3 = 1.2055356, b4 = 0.17118478;
 	double dtc2 = dt*c2, dtc3 = dt*c3;
     double dta21 = dt*a21, dta31 = dt*a31, dta32 = dt*a32, dta41 = dt*a41, dta42 = dt*a42, dta43 = dt*a43;
