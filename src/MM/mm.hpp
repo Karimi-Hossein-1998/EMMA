@@ -9,6 +9,7 @@
 
 #include "initializers/initials.hpp"
 #include "models/models.phase-oscillators.hpp"
+#include "models/molecular-dynamics.hpp"
 #include "network/topology.hpp"
 
 #include "solvers/ODE/rk/explicit/rk1-solver.hpp"
