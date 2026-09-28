@@ -31,15 +31,15 @@ the organisation of `src/MM`.
 
 ## Modules
 
-| Module | Description | Document |
-|---|---|---|
-| Models | Kuramoto family, Ott–Antonsen reduction, molecular dynamics | [models/](models/) |
-| ODE solvers | Runge–Kutta (RK1–RK4 + variants) and multistep (Adams) methods | [solvers/](solvers/) |
-| Initial conditions | Distributions, splay states, modules | [initializers.md](initializers.md) |
-| Networks | Random / Erdős–Rényi / small-world / modular / hierarchical topologies | [network-topology.md](network-topology.md) |
-| Interpolators | Lagrange and Newton divided-difference interpolation | [interpolators.md](interpolators.md) |
-| Types | Vec / Matrix / solver callbacks | [typedefs.md](typedefs.md) |
-| Utility | CSV / binary matrix & vector serialisation | [utility.md](utility.md) |
+| Module             | Description                                                            | Document                                   |
+| ------------------ | ---------------------------------------------------------------------- | ------------------------------------------ |
+| Models             | Kuramoto family, Ott–Antonsen reduction, molecular dynamics            | [models/](models/README.md)                |
+| ODE solvers        | Runge–Kutta (RK1–RK4 + variants) and multistep (Adams) methods         | [solvers/](solvers/README.md)              |
+| Initial conditions | Distributions, splay states, modules                                   | [initializers.md](initializers.md)         |
+| Networks           | Random / Erdős–Rényi / small-world / modular / hierarchical topologies | [network-topology.md](network-topology.md) |
+| Interpolators      | Lagrange and Newton divided-difference interpolation                   | [interpolators.md](interpolators.md)       |
+| Types              | Vec / Matrix / solver callbacks                                        | [typedefs.md](typedefs.md)                 |
+| Utility            | CSV / binary matrix & vector serialisation                             | [utility.md](utility.md)                   |
 
 ## The GUI
 
