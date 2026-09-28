@@ -47,6 +47,8 @@ struct MDConfig
     double epsilon       = 1.0;
     double cutoffCoeff   = 2.5;
     double morseAlpha    = 1.0;
+    double powerN        = 9.0;   // SoftSphere exponent
+    double yukawaKappa   = 1.0;   // Yukawa inverse screening length
 
     double temperature   = 1.0;  // initial (and reference) temperature
     double restitution   = 1.0;
@@ -114,6 +116,8 @@ public:
         potentialParams.epsilon     = cfg.epsilon;
         potentialParams.cutoffCoeff = cfg.cutoffCoeff;
         potentialParams.morseAlpha  = cfg.morseAlpha;
+        potentialParams.powerN      = cfg.powerN;
+        potentialParams.yukawaKappa = cfg.yukawaKappa;
         FinalizePotential(cfg.potential, potentialParams);
 
         InitialConditionParams icp;

@@ -10,7 +10,7 @@ Files (all in `namespace MathEngine`, SDL/raylib-free):
 
 | Header | Contents |
 |---|---|
-| `models/MolecularDynamics/potential.hpp` | `PotentialType` {LennardJones, WCA, Morse} + shifted-force kernel |
+| `models/MolecularDynamics/potential.hpp` | `PotentialType` {LennardJones, WCA, Morse, SoftSphere, Yukawa, Coulomb2D} + shifted-force kernel |
 | `models/MolecularDynamics/initial-conditions.hpp` | `InitialConditionType` {SquareLattice, HexagonalLattice, Random, TwoPhaseSlab, BinaryMixture} |
 | `models/MolecularDynamics/engine.hpp` | `MolecularDynamics` (SoA) engine + `MDConfig` + `IntegratorType` |
 | `models/MolecularDynamics/thermostats.hpp` | `ThermostatType` + barostat + pressure |
@@ -90,7 +90,46 @@ bond length, and $\alpha$ the stiffness (width) of the well. The Morse potential
 models chemical bonds and admits the discrete vibrational spectrum
 $E_n = -D + \hbar\omega(n+\tfrac12)$ in quantum mechanics.
 
-### 2.4 Shifted-force cutoff
+### 2.4 Soft sphere (power-law repulsion)
+
+$$
+U(r) = \varepsilon\left(\frac{\sigma}{r}\right)^{n},
+\qquad
+\frac{\mathrm{d}U}{\mathrm{d}r} = -\frac{n\,\varepsilon}{r}\left(\frac{\sigma}{r}\right)^{n}.
+$$
+
+A purely repulsive inverse-power interaction; the exponent $n$ (default 9) sets the
+softness. It models steric / soft-particle repulsion (inverse-power fluids,
+Hertzian contacts, granular matter).
+
+### 2.5 Yukawa (screened Coulomb)
+
+$$
+U(r) = \varepsilon\,\frac{\sigma}{r}\,e^{-\kappa r},
+\qquad
+\frac{\mathrm{d}U}{\mathrm{d}r}
+= -\varepsilon\,\sigma\,e^{-\kappa r}\left(\frac{\kappa}{r} + \frac{1}{r^2}\right).
+$$
+
+The Debye–Hückel screened Coulomb interaction; $\kappa$ is the inverse screening
+length (set by the ionic strength of the background). It describes charged
+colloids in an electrolyte, dusty plasmas, and Yukawa fluids.
+
+### 2.6 Coulomb 2D (soft-core logarithmic)
+
+$$
+U(r) = \varepsilon\,\ln\!\frac{r+\sigma}{r},
+\qquad
+\frac{\mathrm{d}U}{\mathrm{d}r} = -\frac{\varepsilon\,\sigma}{r\,(r+\sigma)}.
+$$
+
+The two-dimensional Coulomb (logarithmic) interaction, regularised by a soft core
+of width $\sigma$ that removes the $\ln$ singularity at $r=0$. In 2D the bare
+Coulomb force decays as $1/r$; this soft-core form describes point vortices, 2D
+plasmas, and charged discs. Here $\varepsilon$ is the product of the two "charge"
+strengths.
+
+### 2.7 Shifted-force cutoff
 
 A plain truncation makes the force discontinuous at $r_c$, which leaks energy in
 NVE. The engine uses a **linear shifted-force** cutoff: for $r<r_c$,
@@ -275,6 +314,9 @@ potentialEnergy, totalEnergy, pressure, psi4, psi6, msd}`).
 - **Diffusion** — extract $D$ from the MSD slope.
 - **Structure** — $g(r)$ and $\Psi_4/\Psi_6$ discriminate solid / liquid /
   hexatic phases and reveal the lattice symmetry.
+- **Soft / screened matter** — SoftSphere (inverse-power fluids), Yukawa (charged
+  colloids in an electrolyte), and Coulomb2D (2D plasmas, point vortices) extend
+  the model beyond van-der-Waals fluids.
 
 ## References
 

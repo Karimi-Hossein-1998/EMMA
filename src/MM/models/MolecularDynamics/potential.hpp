@@ -31,8 +31,11 @@ inline constexpr double kMDEpsSqr = 1.0e-10;
 enum class PotentialType
 {
     LennardJones = 0,
-    WCA,          // Weeks-Chandler-Andersen: repulsive core of LJ
-    Morse
+    WCA,           // Weeks-Chandler-Andersen: repulsive core of LJ
+    Morse,
+    SoftSphere,    // power-law repulsion   eps*(sigma/r)^n
+    Yukawa,        // screened Coulomb      eps*(sigma/r)*exp(-kappa r)
+    Coulomb2D      // soft-core logarithmic  eps*ln((r+sigma)/r)
 };
 
 struct PotentialParams
@@ -41,6 +44,8 @@ struct PotentialParams
     double epsilon     = 1.0;   // energy scale: LJ/WCA epsilon, Morse depth D
     double cutoffCoeff = 2.5;   // LJ/Morse cutoff = sigma * cutoffCoeff (WCA is fixed)
     double morseAlpha  = 1.0;   // Morse width (1/length); > 0
+    double powerN      = 9.0;   // SoftSphere exponent n (>= 1)
+    double yukawaKappa = 1.0;   // Yukawa inverse screening length (>= 0)
 
     // Derived quantities (set by FinalizePotential).
     double distCutOff    = 2.5;
@@ -53,6 +58,8 @@ struct PotentialParams
 inline void FinalizePotential(PotentialType type, PotentialParams& p)
 {
     if (p.morseAlpha <= 0.0) p.morseAlpha = 1.0;
+    if (p.powerN < 1.0) p.powerN = 1.0;
+    if (p.yukawaKappa < 0.0) p.yukawaKappa = 0.0;
 
     switch (type)
     {
@@ -74,6 +81,37 @@ inline void FinalizePotential(PotentialType type, PotentialParams& p)
                 const double e = std::exp(-p.morseAlpha * (p.distCutOff - p.sigma));
                 p.uCutoff = p.epsilon * (e * e - 2.0 * e);
                 p.fCutoff = 2.0 * p.epsilon * p.morseAlpha * (1.0 - e) * e;
+            }
+            break;
+
+        case PotentialType::SoftSphere:
+            p.distCutOff    = p.sigma * p.cutoffCoeff;
+            p.distCutOffSqr = p.distCutOff * p.distCutOff;
+            {
+                const double n = p.powerN;
+                const double u = std::pow(p.sigma / p.distCutOff, n);   // (sigma/r_c)^n
+                p.uCutoff = p.epsilon * u;
+                p.fCutoff = -n * p.epsilon * u / p.distCutOff;          // dU/dr at r_c
+            }
+            break;
+
+        case PotentialType::Yukawa:
+            p.distCutOff    = p.sigma * p.cutoffCoeff;
+            p.distCutOffSqr = p.distCutOff * p.distCutOff;
+            {
+                const double e = std::exp(-p.yukawaKappa * p.distCutOff);
+                p.uCutoff = p.epsilon * (p.sigma / p.distCutOff) * e;
+                p.fCutoff = -p.epsilon * p.sigma * e * (p.yukawaKappa / p.distCutOff
+                                                       + 1.0 / (p.distCutOff * p.distCutOff));
+            }
+            break;
+
+        case PotentialType::Coulomb2D:
+            p.distCutOff    = p.sigma * p.cutoffCoeff;
+            p.distCutOffSqr = p.distCutOff * p.distCutOff;
+            {
+                p.uCutoff = p.epsilon * std::log((p.distCutOff + p.sigma) / p.distCutOff);
+                p.fCutoff = -p.epsilon * p.sigma / (p.distCutOff * (p.distCutOff + p.sigma));
             }
             break;
 
@@ -111,6 +149,29 @@ inline void PairForceEnergy(double r2, PotentialType type, const PotentialParams
             const double e = std::exp(-p.morseAlpha * (r - p.sigma));
             f0  = 2.0 * p.epsilon * p.morseAlpha * (1.0 - e) * e / r;
             pe0 = p.epsilon * (e * e - 2.0 * e);
+            break;
+        }
+        case PotentialType::SoftSphere:
+        {
+            const double r = std::sqrt(r2);
+            const double u = std::pow(p.sigma / r, p.powerN);   // (sigma/r)^n
+            f0  = -p.powerN * p.epsilon * u / r2;               // (1/r) dU/dr
+            pe0 = p.epsilon * u;
+            break;
+        }
+        case PotentialType::Yukawa:
+        {
+            const double r = std::sqrt(r2);
+            const double e = std::exp(-p.yukawaKappa * r);
+            f0  = -p.epsilon * p.sigma * e * (p.yukawaKappa / r2 + 1.0 / (r2 * r));
+            pe0 = p.epsilon * (p.sigma / r) * e;
+            break;
+        }
+        case PotentialType::Coulomb2D:
+        {
+            const double r = std::sqrt(r2);
+            f0  = -p.epsilon * p.sigma / (r2 * (r + p.sigma));
+            pe0 = p.epsilon * std::log((r + p.sigma) / r);
             break;
         }
         case PotentialType::LennardJones:

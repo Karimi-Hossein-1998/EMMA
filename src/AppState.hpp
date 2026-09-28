@@ -101,7 +101,10 @@ enum class MolecularDynamicsType
 {
     LennardJones=0,
     WCA,
-    Morse
+    Morse,
+    SoftSphere,
+    Yukawa,
+    Coulomb2D
 };
 enum class MDIntegratorType
 {
@@ -211,6 +214,8 @@ struct MDParams
     double epsilon     = 1.0;
     double cutoffCoeff = 2.5;
     double morseAlpha  = 1.0;
+    double powerN      = 9.0;   // SoftSphere exponent
+    double yukawaKappa = 1.0;   // Yukawa inverse screening length
 
     double temperature   = 1.0;
     double restitution   = 1.0;
@@ -498,7 +503,7 @@ class AppState
         static constexpr const char* modelNames[] = {"Kuramoto", "Ott-Antonsen", "Molecular Dynamics"};
         static constexpr const char* kuramotoModelNames[] = {"Kuramoto (General)", "Kuramoto (Sparse)", "Kuramoto (Modular)"};
         static constexpr const char* oaModelNames[] = {"OA (Single Community)", "OA (Multi-community)"};
-        static constexpr const char* mdPotentialNames[] = {"Lennard-Jones", "WCA", "Morse"};
+        static constexpr const char* mdPotentialNames[] = {"Lennard-Jones", "WCA", "Morse", "Soft Sphere", "Yukawa", "Coulomb (2D)"};
         static constexpr const char* mdIntegratorNames[] = {"Velocity-Verlet", "Leapfrog"};
         static constexpr const char* mdThermostatNames[] = {"None", "Rescale", "Berendsen", "Andersen", "Langevin", "Nose-Hoover"};
         static constexpr const char* mdInitNames[] = {"Square Lattice", "Hexagonal Lattice", "Random", "Two-Phase Slab", "Binary Mixture"};
@@ -1033,7 +1038,7 @@ inline void AppState::DrawModelPanelContent()
     }
     else if (modelParams.modelType==ModelType::MolecularDynamics)
     {
-        if (ImGui::Combo("Potential",&mdParams.potentialIndex,mdPotentialNames,3))
+        if (ImGui::Combo("Potential",&mdParams.potentialIndex,mdPotentialNames,6))
             mdParams.potential = static_cast<MolecularDynamicsType>(mdParams.potentialIndex);
         ImGui::Spacing();
 
@@ -1047,6 +1052,10 @@ inline void AppState::DrawModelPanelContent()
         ImGui::InputDouble("Cutoff Coefficient", &mdParams.cutoffCoeff, 0.01, 0.1, "%.15g");
         if (mdParams.potential==MolecularDynamicsType::Morse)
             ImGui::InputDouble("Morse Alpha", &mdParams.morseAlpha, 0.01, 0.1, "%.15g");
+        if (mdParams.potential==MolecularDynamicsType::SoftSphere)
+            ImGui::InputDouble("Exponent (n)", &mdParams.powerN, 0.1, 1.0, "%.15g");
+        if (mdParams.potential==MolecularDynamicsType::Yukawa)
+            ImGui::InputDouble("Screening (kappa)", &mdParams.yukawaKappa, 0.01, 0.1, "%.15g");
         ImGui::Spacing();
         ImGui::InputDouble("Temperature", &mdParams.temperature, 0.001, 0.01, "%.15g");
         ImGui::TextDisabled("Box & boundary conditions are set in the Topology tab.");
@@ -2089,6 +2098,8 @@ inline void AppState::StartMolecularDynamics()
     cfg.epsilon      = mdParams.epsilon;
     cfg.cutoffCoeff  = mdParams.cutoffCoeff;
     cfg.morseAlpha   = mdParams.morseAlpha;
+    cfg.powerN       = mdParams.powerN;
+    cfg.yukawaKappa  = mdParams.yukawaKappa;
     cfg.temperature  = mdParams.temperature;
     cfg.restitution  = mdParams.restitution;
     cfg.minSeparation = mdParams.minSeparation;
