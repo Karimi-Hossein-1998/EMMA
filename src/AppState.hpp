@@ -4,6 +4,7 @@
 #include "MM/models/kuramoto/sparse.hpp"
 #include "MM/models/kuramoto/special.hpp"
 #include "MM/models/OA-Ansatz.hpp"
+#include "MM/models/molecular-dynamics.hpp"
 #include "MM/solvers/ODE/rk/explicit/rk1-solver.hpp"
 #include "MM/solvers/ODE/rk/explicit/rk2-solver.hpp"
 #include "MM/solvers/ODE/rk/explicit/rk3-solver.hpp"
@@ -82,7 +83,8 @@ inline MathEngine::SolverFunc adams_bashforth_moulton_wrapper()
 enum class ModelType
 {
 	Kuramoto=0,
-	OttAntonsen
+	OttAntonsen,
+	MolecularDynamics
 };
 enum class KuramotoType
 {
@@ -94,6 +96,34 @@ enum class OAType
 {
     OASingle=0,
     OAGeneral
+};
+enum class MolecularDynamicsType
+{
+    LennardJones=0,
+    WCA,
+    Morse
+};
+enum class MDIntegratorType
+{
+    VelocityVerlet=0,
+    Leapfrog
+};
+enum class MDThermostatType
+{
+    None=0,
+    Rescale,
+    Berendsen,
+    Andersen,
+    Langevin,
+    NoseHoover
+};
+enum class MDInitialConditionType
+{
+    SquareLattice=0,
+    HexagonalLattice,
+    Random,
+    TwoPhaseSlab,
+    BinaryMixture
 };
 enum class SolverMethod
 {
@@ -165,6 +195,66 @@ struct GeneralModelParams
     MathEngine::dMatrix  oaK;        // C x C coupling strengths
     MathEngine::dVec     oaIC;       // initial state (interleaved Re/Im)
     GeneralModelParams(size_t n=50) : N(n) {};
+};
+struct MDParams
+{
+    size_t numParticles = 100;
+    double width  = 800.0;
+    double height = 600.0;
+
+    double mass        = 1.0;
+    double radius      = 0.1;
+    double massRatio   = 2.0;
+    double radiusRatio = 1.5;
+
+    double sigma       = 1.0;
+    double epsilon     = 1.0;
+    double cutoffCoeff = 2.5;
+    double morseAlpha  = 1.0;
+
+    double temperature   = 1.0;
+    double restitution   = 0.5;
+    double minSeparation = 0.8;
+    int    seed          = 41;
+
+    bool periodicBoundaryCondition = false;
+    bool bounce           = true;
+    bool hardSphereCollisions = false;
+
+    MolecularDynamicsType  potential       = MolecularDynamicsType::LennardJones;
+    MDInitialConditionType initialCondition = MDInitialConditionType::SquareLattice;
+    MDIntegratorType       integrator       = MDIntegratorType::VelocityVerlet;
+    MDThermostatType       thermostat       = MDThermostatType::None;
+
+    double thermostatT   = 1.0;   // thermostat target temperature
+    double thermostatTau = 1.0;   // Berendsen / Nose-Hoover relaxation time
+    double langevinGamma = 1.0;   // Langevin friction
+    double andersenNu    = 5.0;   // Andersen collision frequency
+
+    bool   barostat       = false;
+    double targetPressure = 0.0;
+    double barostatTau    = 10.0;
+
+    double dt     = 0.001;
+    double t1     = 10.0;
+    int    stride = 50;
+
+    int potentialIndex         = 0;
+    int initialConditionIndex  = 0;
+    int integratorIndex        = 0;
+    int thermostatIndex        = 0;
+};
+struct MDRunState
+{
+    MathEngine::dVec posX, posY, velX, velY;      // latest particle state (for the live view)
+    std::vector<double> time, temperature, kineticEnergy, potentialEnergy, totalEnergy,
+                        pressure, psi4, psi6, msd; // observables time series
+    void clear()
+    {
+        posX.clear(); posY.clear(); velX.clear(); velY.clear();
+        time.clear(); temperature.clear(); kineticEnergy.clear(); potentialEnergy.clear();
+        totalEnergy.clear(); pressure.clear(); psi4.clear(); psi6.clear(); msd.clear();
+    }
 };
 struct DistParams
 {
@@ -239,6 +329,8 @@ struct SaveParams
     bool saveOAMu           = true;
     bool saveOAEta          = true;
     bool saveOACoupling     = true;
+    bool saveMDFinalState   = true;
+    bool saveMDObservables  = true;
     bool binary             = false;
     bool append             = false;
     int  precision          = 15;
@@ -263,6 +355,8 @@ enum class SaveArtifactKind : int
     OAMu,
     OAEta,
     OACoupling,
+    MDFinalState,
+    MDObservables,
     Count
 };
 struct SaveArtifact
@@ -286,6 +380,8 @@ constexpr SaveArtifact SaveArtifacts[] = {
     { "Lorentzian Center (mu)",  "InitialConditions", "Mu.csv",                    ModelType::OttAntonsen, false, &SaveParams::saveOAMu       },
     { "Population Fractions (eta)","InitialConditions","Eta.csv",                  ModelType::OttAntonsen, false, &SaveParams::saveOAEta      },
     { "Coupling Matrix (K)",     "Topology",         "CouplingMatrix.csv",         ModelType::OttAntonsen, false, &SaveParams::saveOACoupling },
+    { "Final Particle State",    "Solution",         "FinalState.csv",             ModelType::MolecularDynamics, false, &SaveParams::saveMDFinalState },
+    { "MD Observables",          "Analysis",         "Observables.csv",            ModelType::MolecularDynamics, false, &SaveParams::saveMDObservables },
 };
 constexpr int SaveArtifactCount = static_cast<int>(sizeof(SaveArtifacts) / sizeof(SaveArtifacts[0]));
 static_assert(SaveArtifactCount == static_cast<int>(SaveArtifactKind::Count), "SaveArtifact table must match SaveArtifactKind");
@@ -299,6 +395,8 @@ class AppState
 {
 	public:
         GeneralModelParams modelParams = GeneralModelParams(50);
+        MDParams mdParams;
+        MDRunState mdRunState;
         DistParams phaseParams;
         DistParams frqncParams;
         DistParams oaRhoParams{0.0, 0.5};               // initial order magnitude (rho)
@@ -397,9 +495,13 @@ class AppState
             DrawPlotWindow();
         }
 	private:
-        static constexpr const char* modelNames[] = {"Kuramoto", "Ott-Antonsen"};
+        static constexpr const char* modelNames[] = {"Kuramoto", "Ott-Antonsen", "Molecular Dynamics"};
         static constexpr const char* kuramotoModelNames[] = {"Kuramoto (General)", "Kuramoto (Sparse)", "Kuramoto (Modular)"};
         static constexpr const char* oaModelNames[] = {"OA (Single Community)", "OA (Multi-community)"};
+        static constexpr const char* mdPotentialNames[] = {"Lennard-Jones", "WCA", "Morse"};
+        static constexpr const char* mdIntegratorNames[] = {"Velocity-Verlet", "Leapfrog"};
+        static constexpr const char* mdThermostatNames[] = {"None", "Rescale", "Berendsen", "Andersen", "Langevin", "Nose-Hoover"};
+        static constexpr const char* mdInitNames[] = {"Square Lattice", "Hexagonal Lattice", "Random", "Two-Phase Slab", "Binary Mixture"};
         static constexpr const char* adjNames[] = {"Random (Uniform)", "Random (Uniform Symmetric)", "Erdos-Renyi",
             "Erdos-Renyi (True Count)","Erdos-Renyi (Symmetric)", "Erdos-Renyi (Symmetric True Count)",
             "Small World", "Small World (Directed)", "Modular", "Hierarchical"};
@@ -421,6 +523,7 @@ class AppState
 		inline void RenderModals();
         inline void DrawPlotWindow();
         inline void StartSimulation();
+        inline void StartMolecularDynamics();
         inline void DrawProgressBar();
         inline void DrawPlotPanelContent();
         inline void RenderChrono();
@@ -631,6 +734,11 @@ inline std::filesystem::path AppState::BuildDefaultOutputPath()
         const std::string oaType = (modelParams.oaType==OAType::OASingle) ? "Single" : "General";
         folderName = "OttAntonsen-" + oaType + "-C" + std::to_string(modelParams.oaC) + "-" + solver;
     }
+    else if (modelParams.modelType==ModelType::MolecularDynamics)
+    {
+        folderName = "MolecularDynamics-" + std::string(mdPotentialNames[mdParams.potentialIndex])
+                   + "-N" + std::to_string(mdParams.numParticles);
+    }
     else
     {
         folderName = "Kuramoto-" + kType + "-" + topo + "-N" + std::to_string(modelParams.N) + "-" + solver;
@@ -741,6 +849,42 @@ inline bool AppState::WriteArtifactData(SaveArtifactKind kind, const std::filesy
             if (modelParams.oaK.empty()) return false;
             MathEngine::IO::WriteMatrix(modelParams.oaK, MakeWriteOptions(filePath, "Community coupling matrix (K)"));
             return true;
+        case SaveArtifactKind::MDFinalState:
+        {
+            if (mdRunState.posX.empty()) return false;
+            const size_t N = mdRunState.posX.size();
+            MathEngine::dMatrix state(N, 4, 0.0);
+            for (size_t i = 0; i < N; ++i)
+            {
+                state[i, 0] = mdRunState.posX[i];
+                state[i, 1] = mdRunState.posY[i];
+                state[i, 2] = mdRunState.velX[i];
+                state[i, 3] = mdRunState.velY[i];
+            }
+            MathEngine::IO::WriteMatrix(state, MakeWriteOptions(filePath, "Final state (x, y, vx, vy)"));
+            return true;
+        }
+        case SaveArtifactKind::MDObservables:
+        {
+            if (mdRunState.time.empty()) return false;
+            const size_t rows = mdRunState.time.size();
+            const size_t cols = 9;
+            MathEngine::dMatrix obs(rows, cols, 0.0);
+            for (size_t r = 0; r < rows; ++r)
+            {
+                obs[r, 0] = mdRunState.time[r];
+                obs[r, 1] = mdRunState.temperature[r];
+                obs[r, 2] = mdRunState.kineticEnergy[r];
+                obs[r, 3] = mdRunState.potentialEnergy[r];
+                obs[r, 4] = mdRunState.totalEnergy[r];
+                obs[r, 5] = mdRunState.pressure[r];
+                obs[r, 6] = mdRunState.psi4[r];
+                obs[r, 7] = mdRunState.psi6[r];
+                obs[r, 8] = mdRunState.msd[r];
+            }
+            MathEngine::IO::WriteMatrix(obs, MakeWriteOptions(filePath, "time, temperature, kineticEnergy, potentialEnergy, totalEnergy, pressure, psi4, psi6, msd"));
+            return true;
+        }
         default: return false;
     }
 }
@@ -823,7 +967,7 @@ inline void AppState::DrawSavePanelContent()
 inline void AppState::DrawModelPanelContent()
 {
     ImGui::SeparatorText("Model Configuration");
-    if (ImGui::Combo("Model Type",&modelParams.modelSelectedIndex, modelNames,2))
+    if (ImGui::Combo("Model Type",&modelParams.modelSelectedIndex, modelNames,3))
     {
         modelParams.modelType = static_cast<ModelType>(modelParams.modelSelectedIndex);
     }
@@ -881,10 +1025,44 @@ inline void AppState::DrawModelPanelContent()
             }
         }
     }
+    else if (modelParams.modelType==ModelType::MolecularDynamics)
+    {
+        if (ImGui::Combo("Potential",&mdParams.potentialIndex,mdPotentialNames,3))
+            mdParams.potential = static_cast<MolecularDynamicsType>(mdParams.potentialIndex);
+        ImGui::Spacing();
+
+        int n = static_cast<int>(mdParams.numParticles);
+        if (ImGui::InputInt("Particles (N)", &n, 1, 50)) mdParams.numParticles = static_cast<size_t>(std::max(1, n));
+        ImGui::InputDouble("Mass", &mdParams.mass, 0.001, 0.1, "%.15g");
+        ImGui::InputDouble("Radius", &mdParams.radius, 0.001, 0.01, "%.15g");
+        ImGui::Spacing();
+        ImGui::InputDouble("Sigma", &mdParams.sigma, 0.001, 0.1, "%.15g");
+        ImGui::InputDouble("Epsilon", &mdParams.epsilon, 0.001, 0.1, "%.15g");
+        ImGui::InputDouble("Cutoff Coefficient", &mdParams.cutoffCoeff, 0.01, 0.1, "%.15g");
+        if (mdParams.potential==MolecularDynamicsType::Morse)
+            ImGui::InputDouble("Morse Alpha", &mdParams.morseAlpha, 0.01, 0.1, "%.15g");
+        ImGui::Spacing();
+        ImGui::InputDouble("Temperature", &mdParams.temperature, 0.001, 0.01, "%.15g");
+        ImGui::TextDisabled("Box & boundary conditions are set in the Topology tab.");
+    }
 }
 
 inline void AppState::DrawTopologyPanelContent()
 {
+    if (modelParams.modelType==ModelType::MolecularDynamics)
+    {
+        ImGui::TextDisabled("Molecular dynamics has no adjacency matrix.");
+        ImGui::Spacing();
+        ImGui::SeparatorText("Box & Boundary Conditions");
+        ImGui::InputDouble("Box Width", &mdParams.width, 1.0, 10.0, "%.15g");
+        ImGui::InputDouble("Box Height", &mdParams.height, 1.0, 10.0, "%.15g");
+        ImGui::Checkbox("Periodic Boundary", &mdParams.periodicBoundaryCondition);
+        ImGui::Checkbox("Bounce (walls)", &mdParams.bounce);
+        ImGui::Checkbox("Hard-Sphere Collisions", &mdParams.hardSphereCollisions);
+        ImGui::InputDouble("Restitution", &mdParams.restitution, 0.01, 0.1, "%.15g");
+        return;
+    }
+
     const bool isOAGeneral = (modelParams.modelType==ModelType::OttAntonsen) && (modelParams.oaType==OAType::OAGeneral);
 
     if (modelParams.modelType==ModelType::OttAntonsen && modelParams.oaType==OAType::OASingle)
@@ -1161,6 +1339,24 @@ inline MathEngine::dVec AppState::GenerateOAVector(const DistParams& p, size_t C
 
 inline void AppState::DrawInitialsPanelContent()
 {
+    if (modelParams.modelType==ModelType::MolecularDynamics)
+    {
+        ImGui::SeparatorText("Initial Configuration");
+        if (ImGui::Combo("Configuration",&mdParams.initialConditionIndex,mdInitNames,5))
+            mdParams.initialCondition = static_cast<MDInitialConditionType>(mdParams.initialConditionIndex);
+        ImGui::InputInt("Seed##MD-IC", &mdParams.seed, 1, 10);
+        if (mdParams.initialCondition==MDInitialConditionType::Random)
+            ImGui::InputDouble("Min Separation (sigma)", &mdParams.minSeparation, 0.01, 0.1, "%.15g");
+        if (mdParams.initialCondition==MDInitialConditionType::BinaryMixture)
+        {
+            ImGui::InputDouble("Mass Ratio", &mdParams.massRatio, 0.1, 0.5, "%.15g");
+            ImGui::InputDouble("Radius Ratio", &mdParams.radiusRatio, 0.1, 0.5, "%.15g");
+        }
+        ImGui::Spacing();
+        ImGui::TextDisabled("Velocities: Maxwell-Boltzmann at T = %.4g (zero centre-of-mass).", mdParams.temperature);
+        return;
+    }
+
     if (modelParams.modelType==ModelType::OttAntonsen)
     {
         ImGui::SeparatorText("Initial Order Parameters");
@@ -1462,6 +1658,50 @@ inline void AppState::DrawInitialsPanelContent()
 
 inline void AppState::DrawODESolverParametersPanelContent()
 {
+    if (modelParams.modelType==ModelType::MolecularDynamics)
+    {
+        ImGui::SeparatorText("Integration");
+        if (ImGui::Combo("Integrator",&mdParams.integratorIndex,mdIntegratorNames,2))
+            mdParams.integrator = static_cast<MDIntegratorType>(mdParams.integratorIndex);
+        ImGui::InputDouble("Step Size (dt)", &mdParams.dt, 0.000001, 0.01, "%.15g");
+        ImGui::InputDouble("End Time (t1)", &mdParams.t1, 0.1, 1.0, "%.15g");
+        ImGui::InputInt("Stride (samples)", &mdParams.stride, 1, 10);
+        if (mdParams.stride < 1) mdParams.stride = 1;
+
+        ImGui::Spacing();
+        ImGui::SeparatorText("Thermostat");
+        if (ImGui::Combo("Thermostat",&mdParams.thermostatIndex,mdThermostatNames,6))
+            mdParams.thermostat = static_cast<MDThermostatType>(mdParams.thermostatIndex);
+        if (mdParams.thermostat!=MDThermostatType::None)
+        {
+            ImGui::InputDouble("Target Temperature", &mdParams.thermostatT, 0.001, 0.01, "%.15g");
+            switch (mdParams.thermostat)
+            {
+                case MDThermostatType::Berendsen:
+                case MDThermostatType::NoseHoover:
+                    ImGui::InputDouble("Relaxation Time (tau)", &mdParams.thermostatTau, 0.01, 0.1, "%.15g");
+                    break;
+                case MDThermostatType::Andersen:
+                    ImGui::InputDouble("Collision Frequency (nu)", &mdParams.andersenNu, 0.1, 1.0, "%.15g");
+                    break;
+                case MDThermostatType::Langevin:
+                    ImGui::InputDouble("Friction (gamma)", &mdParams.langevinGamma, 0.1, 1.0, "%.15g");
+                    break;
+                default: break;
+            }
+        }
+
+        ImGui::Spacing();
+        ImGui::SeparatorText("Barostat (NPT)");
+        ImGui::Checkbox("Enable Barostat", &mdParams.barostat);
+        if (mdParams.barostat)
+        {
+            ImGui::InputDouble("Target Pressure", &mdParams.targetPressure, 0.001, 0.01, "%.15g");
+            ImGui::InputDouble("Relaxation Time (tauP)", &mdParams.barostatTau, 0.1, 1.0, "%.15g");
+        }
+        return;
+    }
+
 	if (ImGui::Combo("Solver Method",&solverParams.solverMethodSelectedIndex,solverMethodNames,9))
         solverParams.solverMethod=static_cast<SolverMethod>(solverParams.solverMethodSelectedIndex);
     switch(solverParams.solverMethod)
@@ -1829,6 +2069,129 @@ inline void AppState::RenderModals()
     // }
 }
 
+inline void AppState::StartMolecularDynamics()
+{
+    MathEngine::MDConfig cfg;
+    cfg.numParticles = mdParams.numParticles;
+    cfg.width  = mdParams.width;
+    cfg.height = mdParams.height;
+    cfg.mass         = mdParams.mass;
+    cfg.radius       = mdParams.radius;
+    cfg.massRatio    = mdParams.massRatio;
+    cfg.radiusRatio  = mdParams.radiusRatio;
+    cfg.sigma        = mdParams.sigma;
+    cfg.epsilon      = mdParams.epsilon;
+    cfg.cutoffCoeff  = mdParams.cutoffCoeff;
+    cfg.morseAlpha   = mdParams.morseAlpha;
+    cfg.temperature  = mdParams.temperature;
+    cfg.restitution  = mdParams.restitution;
+    cfg.minSeparation = mdParams.minSeparation;
+    cfg.seed         = static_cast<size_t>(std::max(1, mdParams.seed));
+    cfg.periodicBoundaryCondition = mdParams.periodicBoundaryCondition;
+    cfg.bounce         = mdParams.bounce;
+    cfg.hardSphereCollisions = mdParams.hardSphereCollisions;
+    cfg.potential        = static_cast<MathEngine::PotentialType>(mdParams.potential);
+    cfg.initialCondition = static_cast<MathEngine::InitialConditionType>(mdParams.initialCondition);
+
+    const double dt = mdParams.dt;
+    const double t1 = mdParams.t1;
+    const int stride = std::max(1, mdParams.stride);
+    const size_t numSteps = static_cast<size_t>(std::llround(t1 / dt));
+    if (numSteps == 0) { isSimRunning.store(false); return; }
+
+    timeInv.store(static_cast<float>(1.0 / std::abs(t1)));
+    simProgress.store(0.0f);
+
+    {
+        std::lock_guard<std::mutex> lock(plotParams.plotMutex);
+        plotParams.plotX.clear();
+        plotParams.plotY.clear();
+        plotParams.plotXTrail.clear();
+        plotParams.plotYTrail.clear();
+        plotParams.liveState.clear();
+        mdRunState.clear();
+    }
+
+    const auto mdIntegrator = mdParams.integrator;
+    const auto mdThermostat = mdParams.thermostat;
+    const double thermostatT   = mdParams.thermostatT;
+    const double thermostatTau = mdParams.thermostatTau;
+    const double langevinGamma  = mdParams.langevinGamma;
+    const double andersenNu     = mdParams.andersenNu;
+    const bool   barostat       = mdParams.barostat;
+    const double targetPressure = mdParams.targetPressure;
+    const double barostatTau    = mdParams.barostatTau;
+
+    auto runMD = [this, cfg, dt, stride, numSteps, mdIntegrator, mdThermostat,
+                  thermostatT, thermostatTau, langevinGamma, andersenNu,
+                  barostat, targetPressure, barostatTau]()
+    {
+        try
+        {
+            MathEngine::MolecularDynamics md(cfg);
+            size_t rngSeed = cfg.seed;
+
+            auto record = [&](double t)
+            {
+                const MathEngine::Observables o = MathEngine::CollectObservables(md, t, 1.4);
+                std::lock_guard<std::mutex> lock(plotParams.plotMutex);
+                plotParams.plotX.push_back(o.time);
+                plotParams.plotY.push_back(o.psi6);
+                mdRunState.posX = md.posX; mdRunState.posY = md.posY;
+                mdRunState.velX = md.velX; mdRunState.velY = md.velY;
+                mdRunState.time.push_back(o.time);
+                mdRunState.temperature.push_back(o.temperature);
+                mdRunState.kineticEnergy.push_back(o.kineticEnergy);
+                mdRunState.potentialEnergy.push_back(o.potentialEnergy);
+                mdRunState.totalEnergy.push_back(o.totalEnergy);
+                mdRunState.pressure.push_back(o.pressure);
+                mdRunState.psi4.push_back(o.psi4);
+                mdRunState.psi6.push_back(o.psi6);
+                mdRunState.msd.push_back(o.msd);
+            };
+
+            record(0.0);
+            for (size_t s = 0; s < numSteps; ++s)
+            {
+                if (mdThermostat == MDThermostatType::NoseHoover)
+                {
+                    MathEngine::StepNoseHoover(md, dt, thermostatT, thermostatTau);
+                }
+                else
+                {
+                    if (mdIntegrator == MDIntegratorType::VelocityVerlet) md.Step(dt);
+                    else md.StepLeapfrog(dt);
+
+                    switch (mdThermostat)
+                    {
+                        case MDThermostatType::Rescale:   MathEngine::ApplyVelocityRescale(md, thermostatT); break;
+                        case MDThermostatType::Berendsen: MathEngine::ApplyBerendsen(md, thermostatT, dt, thermostatTau); break;
+                        case MDThermostatType::Andersen:  MathEngine::ApplyAndersen(md, thermostatT, dt, andersenNu, rngSeed); break;
+                        case MDThermostatType::Langevin:  MathEngine::ApplyLangevin(md, thermostatT, dt, langevinGamma, rngSeed); break;
+                        default: break;
+                    }
+                }
+                if (barostat) MathEngine::ApplyBerendsenBarostat(md, targetPressure, dt, barostatTau);
+
+                if ((s + 1) % static_cast<size_t>(stride) == 0 || s + 1 == numSteps)
+                    record(static_cast<double>(s + 1) * dt);
+
+                simProgress.store(static_cast<float>(static_cast<double>(s + 1) / static_cast<double>(numSteps)));
+            }
+        }
+        catch (...) {}
+        simProgress.store(1.0f);
+        isSimRunning.store(false);
+    };
+
+    #ifndef __EMSCRIPTEN__
+    simThread = std::thread(runMD);
+    #else
+    runMD();  // Web: synchronous run.
+    #endif
+    hasSimRan = true;
+}
+
 inline void AppState::StartSimulation()
 {
     // Do not start a new simulation while one is still running.
@@ -1841,6 +2204,11 @@ inline void AppState::StartSimulation()
     simProgress.store(0.0f);
     isSimRunning.store(true);
     timeInv.store(static_cast<float>(1.0/std::abs(solverParams.solverParams.t1-solverParams.solverParams.t0)));
+    if (modelParams.modelType==ModelType::MolecularDynamics)
+    {
+        StartMolecularDynamics();
+        return;
+    }
     // constexpr size_t Stride = 25;
     const size_t vectorSize = static_cast<size_t>((solverParams.solverParams.t1-solverParams.solverParams.t0)/solverParams.solverParams.dt);
     const size_t plotExpectedSize = static_cast<size_t>(vectorSize/plotParams.Stride)*2+100;
@@ -2061,7 +2429,31 @@ inline void AppState::DrawPlotWindow()
             }
             ImGui::End();
         }
-        if (modelParams.modelType==ModelType::Kuramoto && plotParams.showPlotSecond)
+        if (modelParams.modelType==ModelType::MolecularDynamics && plotParams.showPlotSecond)
+        {
+            const ImGuiViewport* viewport = ImGui::GetMainViewport();
+            ImVec2 center = viewport->GetCenter();
+            ImGui::SetNextWindowPos(center, ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
+            ImGui::SetNextWindowSize(ImVec2(500, 460), ImGuiCond_FirstUseEver);
+            if (ImGui::Begin("Particles",&plotParams.showPlotSecond))
+            {
+                ImVec2 availableSpace = ImGui::GetContentRegionAvail();
+                if (ImPlot::BeginPlot("Particle Positions",availableSpace))
+                {
+                    const double W = mdParams.width, H = mdParams.height;
+                    ImPlot::SetupAxes("x","y");
+                    ImPlot::SetupAxesLimits(0.0, std::max(1.0, W), 0.0, std::max(1.0, H), ImPlotCond_Always);
+                    ImPlotSpec spec;
+                    if (!plotParams.plotSecondColors.empty())
+                        spec.LineColor = plotParams.plotSecondColors[0];
+                    ImPlot::PlotScatter("particles", mdRunState.posX.data(), mdRunState.posY.data(),
+                                        static_cast<int>(mdRunState.posX.size()), spec);
+                    ImPlot::EndPlot();
+                }
+            }
+            ImGui::End();
+        }
+        else if (modelParams.modelType==ModelType::Kuramoto && plotParams.showPlotSecond)
         {
             const ImGuiViewport* viewport = ImGui::GetMainViewport();
             ImVec2 center = viewport->GetCenter();
@@ -2168,17 +2560,18 @@ inline void AppState::DrawPlotPanelContent()
             plotParams.plotColors.push_back(ImVec4(0.2f,0.8f,0.8f,1.0f));
         ImGui::ColorEdit4("\U0001D70C-t Colors (main)",&plotParams.plotColors[0].x);
     }
-    if (modelParams.modelType==ModelType::Kuramoto)
+    if (modelParams.modelType==ModelType::Kuramoto || modelParams.modelType==ModelType::MolecularDynamics)
     {
-        if (ImGui::CollapsingHeader("\U0001D73D Plot##second plot"))
+        const bool isMD = (modelParams.modelType==ModelType::MolecularDynamics);
+        if (ImGui::CollapsingHeader(isMD ? "Particles Plot##second plot" : "\U0001D73D Plot##second plot"))
         {
-            ImGui::Checkbox("Show \U0001D73D Plot", &plotParams.showPlotSecond);
+            ImGui::Checkbox(isMD ? "Show Particles Plot" : "Show \U0001D73D Plot", &plotParams.showPlotSecond);
             ImGui::Spacing();
             ImGui::SeparatorText("Line Color##second plot");
             ImGui::Spacing();
             if (plotParams.plotSecondColors.empty())
                 plotParams.plotSecondColors.push_back(ImVec4(0.2f,0.8f,0.8f,1.0f));
-            ImGui::ColorEdit4("\U0001D73D Colors",&plotParams.plotSecondColors[0].x);
+            ImGui::ColorEdit4(isMD ? "Particle Color" : "\U0001D73D Colors",&plotParams.plotSecondColors[0].x);
         }
     }
     const bool showModules = (modelParams.modelType==ModelType::OttAntonsen && modelParams.oaType==OAType::OAGeneral)
