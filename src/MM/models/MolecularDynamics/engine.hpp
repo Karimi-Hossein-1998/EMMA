@@ -35,8 +35,8 @@ enum class IntegratorType
 struct MDConfig
 {
     size_t numParticles = 100;
-    double width  = 800.0;
-    double height = 600.0;
+    double width  = 11.0;   // reduced units: ~11 sigma -> ~0.8 density liquid
+    double height = 11.0;
 
     double mass         = 1.0;
     double radius       = 0.1;   // hard-sphere / visual radius (species 0)
@@ -49,12 +49,12 @@ struct MDConfig
     double morseAlpha    = 1.0;
 
     double temperature   = 1.0;  // initial (and reference) temperature
-    double restitution   = 0.5;
+    double restitution   = 1.0;
     double minSeparation = 0.8;  // Random IC (x sigma)
     size_t seed          = 41;
 
-    bool periodicBoundaryCondition = false;
-    bool bounce         = true;
+    bool periodicBoundaryCondition = true;
+    bool bounce         = false;
     bool hardSphereCollisions = false;
 
     PotentialType        potential        = PotentialType::LennardJones;

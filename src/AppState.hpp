@@ -199,8 +199,8 @@ struct GeneralModelParams
 struct MDParams
 {
     size_t numParticles = 100;
-    double width  = 800.0;
-    double height = 600.0;
+    double width  = 11.0;   // reduced units: ~11 sigma gives a ~0.8 density liquid
+    double height = 11.0;
 
     double mass        = 1.0;
     double radius      = 0.1;
@@ -213,12 +213,12 @@ struct MDParams
     double morseAlpha  = 1.0;
 
     double temperature   = 1.0;
-    double restitution   = 0.5;
+    double restitution   = 1.0;
     double minSeparation = 0.8;
     int    seed          = 41;
 
-    bool periodicBoundaryCondition = false;
-    bool bounce           = true;
+    bool periodicBoundaryCondition = true;
+    bool bounce           = false;
     bool hardSphereCollisions = false;
 
     MolecularDynamicsType  potential       = MolecularDynamicsType::LennardJones;
@@ -227,7 +227,7 @@ struct MDParams
     MDThermostatType       thermostat       = MDThermostatType::None;
 
     double thermostatT   = 1.0;   // thermostat target temperature
-    double thermostatTau = 1.0;   // Berendsen / Nose-Hoover relaxation time
+    double thermostatTau = 2.0;   // Berendsen / Nose-Hoover relaxation time
     double langevinGamma = 1.0;   // Langevin friction
     double andersenNu    = 5.0;   // Andersen collision frequency
 
@@ -235,8 +235,8 @@ struct MDParams
     double targetPressure = 0.0;
     double barostatTau    = 10.0;
 
-    double dt     = 0.001;
-    double t1     = 10.0;
+    double dt     = 0.005;
+    double t1     = 20.0;
     int    stride = 50;
 
     int potentialIndex         = 0;
@@ -2115,6 +2115,7 @@ inline void AppState::StartMolecularDynamics()
         plotParams.plotXTrail.clear();
         plotParams.plotYTrail.clear();
         plotParams.liveState.clear();
+        plotParams.offset = 0;
         mdRunState.clear();
     }
 
@@ -2143,6 +2144,18 @@ inline void AppState::StartMolecularDynamics()
                 std::lock_guard<std::mutex> lock(plotParams.plotMutex);
                 plotParams.plotX.push_back(o.time);
                 plotParams.plotY.push_back(o.psi6);
+                // Trailing (ring) buffer feeding the second subplot.
+                if (plotParams.plotXTrail.size() < plotParams.trailCount)
+                {
+                    plotParams.plotXTrail.push_back(o.time);
+                    plotParams.plotYTrail.push_back(o.psi6);
+                }
+                else if (plotParams.trailCount > 0)
+                {
+                    plotParams.plotXTrail[plotParams.offset] = o.time;
+                    plotParams.plotYTrail[plotParams.offset] = o.psi6;
+                    plotParams.offset = static_cast<size_t>((plotParams.offset + 1) % plotParams.trailCount);
+                }
                 mdRunState.posX = md.posX; mdRunState.posY = md.posY;
                 mdRunState.velX = md.velX; mdRunState.velY = md.velY;
                 mdRunState.time.push_back(o.time);
