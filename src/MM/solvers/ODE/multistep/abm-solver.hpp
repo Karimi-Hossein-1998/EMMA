@@ -45,7 +45,9 @@ inline SolverResults adams_bashforth_moulton(double t0, double t1, double dt, co
     Matrix<double> f_hist(order, N);
     for (int i = 0; i < order; ++i)
     {
-        y = std::move(Vec<double>(std::from_range,solution[i]));
+        #pragma omp simd
+        for (size_t j = 0; j < N; ++j)
+            yptr[j] = solptr[i*N+j];   // copy solution[i] into y without reassigning (keeps yptr valid)
         f(timePoints[i], y, y_temp);
         f_hist.SetRow(i,y_temp);
     }
