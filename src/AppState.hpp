@@ -2138,24 +2138,13 @@ inline void AppState::StartMolecularDynamics()
             MathEngine::MolecularDynamics md(cfg);
             size_t rngSeed = cfg.seed;
 
-            auto record = [&](double t)
+            // Main plot + observables time series (stride-downsampled).
+            auto recordFull = [&](double t)
             {
                 const MathEngine::Observables o = MathEngine::CollectObservables(md, t, 1.4);
                 std::lock_guard<std::mutex> lock(plotParams.plotMutex);
                 plotParams.plotX.push_back(o.time);
                 plotParams.plotY.push_back(o.psi6);
-                // Trailing (ring) buffer feeding the second subplot.
-                if (plotParams.plotXTrail.size() < plotParams.trailCount)
-                {
-                    plotParams.plotXTrail.push_back(o.time);
-                    plotParams.plotYTrail.push_back(o.psi6);
-                }
-                else if (plotParams.trailCount > 0)
-                {
-                    plotParams.plotXTrail[plotParams.offset] = o.time;
-                    plotParams.plotYTrail[plotParams.offset] = o.psi6;
-                    plotParams.offset = static_cast<size_t>((plotParams.offset + 1) % plotParams.trailCount);
-                }
                 mdRunState.posX = md.posX; mdRunState.posY = md.posY;
                 mdRunState.velX = md.velX; mdRunState.velY = md.velY;
                 mdRunState.time.push_back(o.time);
@@ -2168,8 +2157,27 @@ inline void AppState::StartMolecularDynamics()
                 mdRunState.psi6.push_back(o.psi6);
                 mdRunState.msd.push_back(o.msd);
             };
+            // Trailing subplot: full-resolution psi6 at every step (ring buffer),
+            // so it shows fine-grained recent trends rather than stride-sampled data.
+            auto recordTrail = [&](double t)
+            {
+                const double psi6 = MathEngine::ComputeBondOrientationalOrder(md, 1.4).psi6;
+                std::lock_guard<std::mutex> lock(plotParams.plotMutex);
+                if (plotParams.plotXTrail.size() < plotParams.trailCount)
+                {
+                    plotParams.plotXTrail.push_back(t);
+                    plotParams.plotYTrail.push_back(psi6);
+                }
+                else if (plotParams.trailCount > 0)
+                {
+                    plotParams.plotXTrail[plotParams.offset] = t;
+                    plotParams.plotYTrail[plotParams.offset] = psi6;
+                    plotParams.offset = static_cast<size_t>((plotParams.offset + 1) % plotParams.trailCount);
+                }
+            };
 
-            record(0.0);
+            recordFull(0.0);
+            recordTrail(0.0);
             for (size_t s = 0; s < numSteps; ++s)
             {
                 if (mdThermostat == MDThermostatType::NoseHoover)
@@ -2192,8 +2200,10 @@ inline void AppState::StartMolecularDynamics()
                 }
                 if (barostat) MathEngine::ApplyBerendsenBarostat(md, targetPressure, dt, barostatTau);
 
+                const double t = static_cast<double>(s + 1) * dt;
+                recordTrail(t);   // every step: fine-grained trailing detail
                 if ((s + 1) % static_cast<size_t>(stride) == 0 || s + 1 == numSteps)
-                    record(static_cast<double>(s + 1) * dt);
+                    recordFull(t);
 
                 simProgress.store(static_cast<float>(static_cast<double>(s + 1) / static_cast<double>(numSteps)));
             }
