@@ -20,6 +20,7 @@ This project aims to create a **_G_**_raphical_ **_U_**_ser_ **_I_**_nterface_ f
 - Added Saving to Files.
 - Added the **Ott–Antonsen** dimensionality-reduction model (single- and multi-community).
 - Added a **2D Molecular Dynamics** model: Lennard-Jones / WCA / Morse potentials (shifted-force cutoff), lattice / random / slab / binary initial conditions, symplectic velocity-Verlet & leapfrog integrators, thermostats (Rescale, Berendsen, Andersen, Langevin, Nosé–Hoover) plus a Berendsen barostat, and bond-orientational order ($\psi_4$/$\psi_6$) / RDF / MSD analysis.
+- Added a **Random Walk** model (Structure-of-Arrays engine): 9 move styles (straight/diagonal/continuous ± center), periodic / reflective / free boundary modes, and full moment & diffusion observables ($\langle x\rangle,\langle y\rangle,\langle x^2\rangle,\langle y^2\rangle$, variances, MSD, $D=\mathrm{MSD}/4t$). The `Free` boundary auto-scales the walker view to fit.
 - Added **model-aware** sidebars and plotting (each panel and plot adapts to the selected model).
 
 ## Documentation

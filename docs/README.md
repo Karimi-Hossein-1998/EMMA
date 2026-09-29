@@ -33,7 +33,7 @@ the organisation of `src/MM`.
 
 | Module             | Description                                                            | Document                                   |
 | ------------------ | ---------------------------------------------------------------------- | ------------------------------------------ |
-| Models             | Kuramoto family, Ott–Antonsen reduction, molecular dynamics            | [models/](models/README.md)                |
+| Models             | Kuramoto family, Ott–Antonsen reduction, molecular dynamics, random walk | [models/](models/README.md)                |
 | ODE solvers        | Runge–Kutta (RK1–RK4 + variants) and multistep (Adams) methods         | [solvers/](solvers/README.md)              |
 | Initial conditions | Distributions, splay states, modules                                   | [initializers.md](initializers.md)         |
 | Networks           | Random / Erdős–Rényi / small-world / modular / hierarchical topologies | [network-topology.md](network-topology.md) |
@@ -46,8 +46,8 @@ the organisation of `src/MM`.
 `src/AppState.hpp` implements the ImGui/raylib front-end. Its sidebar panels are
 **model-aware**: the Model / Topology / Initial Conditions / Solver / Plot / Save
 tabs adapt their controls to the selected `ModelType` (`Kuramoto`,
-`OttAntonsen`, `MolecularDynamics`). See the model pages for the physics behind
-each set of controls.
+`OttAntonsen`, `MolecularDynamics`, `RandomWalk`). See the model pages for the
+physics behind each set of controls.
 
 ## Scientific references
 

@@ -5,6 +5,7 @@
 #include "MM/models/kuramoto/special.hpp"
 #include "MM/models/OA-Ansatz.hpp"
 #include "MM/models/molecular-dynamics.hpp"
+#include "MM/models/random-walk.hpp"
 #include "MM/solvers/ODE/rk/explicit/rk1-solver.hpp"
 #include "MM/solvers/ODE/rk/explicit/rk2-solver.hpp"
 #include "MM/solvers/ODE/rk/explicit/rk3-solver.hpp"
@@ -84,7 +85,8 @@ enum class ModelType
 {
 	Kuramoto=0,
 	OttAntonsen,
-	MolecularDynamics
+	MolecularDynamics,
+	RandomWalk
 };
 enum class KuramotoType
 {
@@ -127,6 +129,24 @@ enum class MDInitialConditionType
     Random,
     TwoPhaseSlab,
     BinaryMixture
+};
+enum class RandomWalkMoveStyle
+{
+    Straight=0,
+    Diagonal,
+    StraightDiagonal,
+    StraightWCenter,
+    DiagonalWCenter,
+    StraightDiagonalWCenter,
+    StraightContinuous,
+    DiagonalContinuous,
+    StraightDiagonalContinuous
+};
+enum class RWBoundary
+{
+    Periodic=0,
+    Reflective,
+    Free
 };
 enum class SolverMethod
 {
@@ -261,6 +281,41 @@ struct MDRunState
         totalEnergy.clear(); pressure.clear(); psi4.clear(); psi6.clear(); msd.clear();
     }
 };
+struct RWParams
+{
+    size_t numWalkers = 200;
+    double width  = 900.0;
+    double height = 600.0;
+    double size   = 5.0;
+
+    double startX   = 0.0;   // common starting position
+    double startY   = 0.0;
+    double stepSize = 1.0;   // distance moved per step
+
+    RandomWalkMoveStyle moveStyle = RandomWalkMoveStyle::Straight;
+    RWBoundary          boundary  = RWBoundary::Free;
+    int    seed          = 41;
+
+    double dt     = 1.0;      // time = stepCount * dt
+    int    steps  = 1000;     // steps per (re)run
+    int    stride = 10;       // down-sample observables every `stride` steps
+
+    int moveStyleIndex = 0;
+    int boundaryIndex  = 2;   // Free by default
+};
+struct RWRunState
+{
+    MathEngine::dVec posX, posY;      // latest walker positions (display space)
+    std::vector<double> time, meanX, meanY, meanX2, meanY2, varX, varY,
+                        covXY, meanR, rmsR, msd, diffusion, radiusOfGyration;
+    void clear()
+    {
+        posX.clear(); posY.clear();
+        time.clear(); meanX.clear(); meanY.clear(); meanX2.clear(); meanY2.clear();
+        varX.clear(); varY.clear(); covXY.clear(); meanR.clear(); rmsR.clear();
+        msd.clear(); diffusion.clear(); radiusOfGyration.clear();
+    }
+};
 struct DistParams
 {
     double minVal = 0.0, maxVal = 1.0;
@@ -336,6 +391,8 @@ struct SaveParams
     bool saveOACoupling     = true;
     bool saveMDFinalState   = true;
     bool saveMDObservables  = true;
+    bool saveRWObservables  = true;
+    bool saveRWFinalState   = true;
     bool binary             = false;
     bool append             = false;
     int  precision          = 15;
@@ -362,6 +419,8 @@ enum class SaveArtifactKind : int
     OACoupling,
     MDFinalState,
     MDObservables,
+    RWObservables,
+    RWFinalState,
     Count
 };
 struct SaveArtifact
@@ -387,6 +446,8 @@ constexpr SaveArtifact SaveArtifacts[] = {
     { "Coupling Matrix (K)",     "Topology",         "CouplingMatrix.csv",         ModelType::OttAntonsen, false, &SaveParams::saveOACoupling },
     { "Final Particle State",    "Solution",         "FinalState.csv",             ModelType::MolecularDynamics, false, &SaveParams::saveMDFinalState },
     { "MD Observables",          "Analysis",         "Observables.csv",            ModelType::MolecularDynamics, false, &SaveParams::saveMDObservables },
+    { "RW Observables",          "Analysis",         "Observables.csv",            ModelType::RandomWalk,        false, &SaveParams::saveRWObservables },
+    { "Final Walker State",      "Solution",         "FinalState.csv",             ModelType::RandomWalk,        false, &SaveParams::saveRWFinalState  },
 };
 constexpr int SaveArtifactCount = static_cast<int>(sizeof(SaveArtifacts) / sizeof(SaveArtifacts[0]));
 static_assert(SaveArtifactCount == static_cast<int>(SaveArtifactKind::Count), "SaveArtifact table must match SaveArtifactKind");
@@ -402,6 +463,10 @@ class AppState
         GeneralModelParams modelParams = GeneralModelParams(50);
         MDParams mdParams;
         MDRunState mdRunState;
+        RWParams rwParams;
+        RWRunState rwRunState;
+        MathEngine::RandomWalk rwEngine;
+        bool rwEngineInitialized = false;
         DistParams phaseParams;
         DistParams frqncParams;
         DistParams oaRhoParams{0.0, 0.5};               // initial order magnitude (rho)
@@ -500,13 +565,17 @@ class AppState
             DrawPlotWindow();
         }
 	private:
-        static constexpr const char* modelNames[] = {"Kuramoto", "Ott-Antonsen", "Molecular Dynamics"};
+        static constexpr const char* modelNames[] = {"Kuramoto", "Ott-Antonsen", "Molecular Dynamics", "Random Walk"};
         static constexpr const char* kuramotoModelNames[] = {"Kuramoto (General)", "Kuramoto (Sparse)", "Kuramoto (Modular)"};
         static constexpr const char* oaModelNames[] = {"OA (Single Community)", "OA (Multi-community)"};
         static constexpr const char* mdPotentialNames[] = {"Lennard-Jones", "WCA", "Morse", "Soft Sphere", "Yukawa", "Coulomb (2D)"};
         static constexpr const char* mdIntegratorNames[] = {"Velocity-Verlet", "Leapfrog"};
         static constexpr const char* mdThermostatNames[] = {"None", "Rescale", "Berendsen", "Andersen", "Langevin", "Nose-Hoover"};
         static constexpr const char* mdInitNames[] = {"Square Lattice", "Hexagonal Lattice", "Random", "Two-Phase Slab", "Binary Mixture"};
+        static constexpr const char* rwMoveStyleNames[] = {"Straight", "Diagonal", "Straight Diagonal", "Straight + Center",
+            "Diagonal + Center", "Straight Diagonal + Center", "Straight Continuous", "Diagonal Continuous",
+            "Straight Diagonal Continuous"};
+        static constexpr const char* rwBoundaryNames[] = {"Periodic", "Reflective", "Free"};
         static constexpr const char* adjNames[] = {"Random (Uniform)", "Random (Uniform Symmetric)", "Erdos-Renyi",
             "Erdos-Renyi (True Count)","Erdos-Renyi (Symmetric)", "Erdos-Renyi (Symmetric True Count)",
             "Small World", "Small World (Directed)", "Modular", "Hierarchical"};
@@ -529,6 +598,8 @@ class AppState
         inline void DrawPlotWindow();
         inline void StartSimulation();
         inline void StartMolecularDynamics();
+        inline void StartRandomWalk(bool fresh);
+        inline void AdvanceRandomWalk();
         inline void DrawProgressBar();
         inline void DrawPlotPanelContent();
         inline void RenderChrono();
@@ -547,9 +618,10 @@ class AppState
         // Model-aware labels for the order-parameter plot (rho for phase oscillators,
         // bond-orientational order psi6 for molecular dynamics).
         inline bool IsMD() const { return modelParams.modelType==ModelType::MolecularDynamics; }
-        inline const char* OrderSymbol() const { return IsMD() ? "\u03C8\u0036" : "\U0001D70C"; }
-        inline const char* OrderAxisLabel() const { return IsMD() ? "Bond-orientational order (\u03C8\u0036)" : "Order (\U0001D70C)"; }
-        inline const char* OrderWindowTitle() const { return IsMD() ? "Order Parameter (\u03C8\u0036)" : "Order Parameter"; }
+        inline bool IsRW() const { return modelParams.modelType==ModelType::RandomWalk; }
+        inline const char* OrderSymbol() const { return IsMD() ? "\u03C8\u0036" : (IsRW() ? "MSD" : "\U0001D70C"); }
+        inline const char* OrderAxisLabel() const { return IsMD() ? "Bond-orientational order (\u03C8\u0036)" : (IsRW() ? "Mean-squared displacement (MSD)" : "Order (\U0001D70C)"); }
+        inline const char* OrderWindowTitle() const { return IsMD() ? "Order Parameter (\u03C8\u0036)" : (IsRW() ? "Mean-squared Displacement" : "Order Parameter"); }
 };
 
 inline bool AppState::DrawActivityButton(const char* icon, const char* title, bool active)
@@ -656,6 +728,14 @@ inline void AppState::DrawRunPanelContent()
     bool running = isSimRunning.load();
     if (running) ImGui::BeginDisabled();
     if (ImGui::Button(running ? "Running..." : "Begin Simulation", ImVec2(-1, 0))) StartSimulation();
+    if (modelParams.modelType==ModelType::RandomWalk)
+    {
+        ImGui::Spacing();
+        char advanceLabel[128];
+        snprintf(advanceLabel, sizeof(advanceLabel), "Advance +%d steps", std::max(1, rwParams.steps));
+        if (ImGui::Button(advanceLabel, ImVec2(-1, 0))) AdvanceRandomWalk();
+        ImGui::TextDisabled("Advance continues from the current walker state with the Move Style / Move Size in the Model tab.");
+    }
     if (running) ImGui::EndDisabled();
 }
 
@@ -749,6 +829,11 @@ inline std::filesystem::path AppState::BuildDefaultOutputPath()
     {
         folderName = "MolecularDynamics-" + std::string(mdPotentialNames[mdParams.potentialIndex])
                    + "-N" + std::to_string(mdParams.numParticles);
+    }
+    else if (modelParams.modelType==ModelType::RandomWalk)
+    {
+        folderName = "RandomWalk-" + std::string(rwMoveStyleNames[rwParams.moveStyleIndex])
+                   + "-N" + std::to_string(rwParams.numWalkers);
     }
     else
     {
@@ -896,6 +981,42 @@ inline bool AppState::WriteArtifactData(SaveArtifactKind kind, const std::filesy
             MathEngine::IO::WriteMatrix(obs, MakeWriteOptions(filePath, "time, temperature, kineticEnergy, potentialEnergy, totalEnergy, pressure, psi4, psi6, msd"));
             return true;
         }
+        case SaveArtifactKind::RWObservables:
+        {
+            if (rwRunState.time.empty()) return false;
+            const size_t rows = rwRunState.time.size();
+            const size_t cols = 11;
+            MathEngine::dMatrix obs(rows, cols, 0.0);
+            for (size_t r = 0; r < rows; ++r)
+            {
+                obs[r, 0]  = rwRunState.time[r];
+                obs[r, 1]  = rwRunState.meanX[r];
+                obs[r, 2]  = rwRunState.meanY[r];
+                obs[r, 3]  = rwRunState.varX[r];
+                obs[r, 4]  = rwRunState.varY[r];
+                obs[r, 5]  = rwRunState.covXY[r];
+                obs[r, 6]  = rwRunState.meanR[r];
+                obs[r, 7]  = rwRunState.rmsR[r];
+                obs[r, 8]  = rwRunState.msd[r];
+                obs[r, 9]  = rwRunState.diffusion[r];
+                obs[r, 10] = rwRunState.radiusOfGyration[r];
+            }
+            MathEngine::IO::WriteMatrix(obs, MakeWriteOptions(filePath, "time, meanX, meanY, varX, varY, covXY, meanR, rmsR, msd, diffusion, radiusOfGyration"));
+            return true;
+        }
+        case SaveArtifactKind::RWFinalState:
+        {
+            if (rwRunState.posX.empty()) return false;
+            const size_t N = rwRunState.posX.size();
+            MathEngine::dMatrix state(N, 2, 0.0);
+            for (size_t i = 0; i < N; ++i)
+            {
+                state[i, 0] = rwRunState.posX[i];
+                state[i, 1] = rwRunState.posY[i];
+            }
+            MathEngine::IO::WriteMatrix(state, MakeWriteOptions(filePath, "Final state (x, y)"));
+            return true;
+        }
         default: return false;
     }
 }
@@ -978,7 +1099,7 @@ inline void AppState::DrawSavePanelContent()
 inline void AppState::DrawModelPanelContent()
 {
     ImGui::SeparatorText("Model Configuration");
-    if (ImGui::Combo("Model Type",&modelParams.modelSelectedIndex, modelNames,3))
+    if (ImGui::Combo("Model Type",&modelParams.modelSelectedIndex, modelNames,4))
     {
         modelParams.modelType = static_cast<ModelType>(modelParams.modelSelectedIndex);
     }
@@ -1060,10 +1181,36 @@ inline void AppState::DrawModelPanelContent()
         ImGui::InputDouble("Temperature", &mdParams.temperature, 0.001, 0.01, "%.15g");
         ImGui::TextDisabled("Box & boundary conditions are set in the Topology tab.");
     }
+    else if (modelParams.modelType==ModelType::RandomWalk)
+    {
+        if (ImGui::Combo("Move Style",&rwParams.moveStyleIndex,rwMoveStyleNames,9))
+            rwParams.moveStyle = static_cast<RandomWalkMoveStyle>(rwParams.moveStyleIndex);
+        ImGui::InputDouble("Move Size (per step)", &rwParams.stepSize, 0.01, 0.1, "%.15g");
+        ImGui::Spacing();
+
+        int n = static_cast<int>(rwParams.numWalkers);
+        if (ImGui::InputInt("Walkers (N)", &n, 1, 50)) rwParams.numWalkers = static_cast<size_t>(std::max(1, n));
+        ImGui::InputDouble("Walker Size", &rwParams.size, 0.1, 1.0, "%.15g");
+        ImGui::TextDisabled("Canvas size & boundary are set in the Topology tab.");
+    }
 }
 
 inline void AppState::DrawTopologyPanelContent()
 {
+    if (modelParams.modelType==ModelType::RandomWalk)
+    {
+        ImGui::TextDisabled("Random walk has no adjacency matrix.");
+        ImGui::Spacing();
+        ImGui::SeparatorText("Canvas & Boundary Conditions");
+        ImGui::InputDouble("Canvas Width", &rwParams.width, 1.0, 10.0, "%.15g");
+        ImGui::InputDouble("Canvas Height", &rwParams.height, 1.0, 10.0, "%.15g");
+        if (ImGui::Combo("Boundary Mode",&rwParams.boundaryIndex,rwBoundaryNames,3))
+            rwParams.boundary = static_cast<RWBoundary>(rwParams.boundaryIndex);
+        if (rwParams.boundary==RWBoundary::Free)
+            ImGui::TextDisabled("Free boundary: the plot auto-scales to fit the walkers.");
+        return;
+    }
+
     if (modelParams.modelType==ModelType::MolecularDynamics)
     {
         ImGui::TextDisabled("Molecular dynamics has no adjacency matrix.");
@@ -1354,6 +1501,15 @@ inline MathEngine::dVec AppState::GenerateOAVector(const DistParams& p, size_t C
 
 inline void AppState::DrawInitialsPanelContent()
 {
+    if (modelParams.modelType==ModelType::RandomWalk)
+    {
+        ImGui::SeparatorText("Initial Configuration");
+        ImGui::InputDouble("Start X", &rwParams.startX, 0.1, 1.0, "%.15g");
+        ImGui::InputDouble("Start Y", &rwParams.startY, 0.1, 1.0, "%.15g");
+        ImGui::InputInt("Seed##RW-IC", &rwParams.seed, 1, 10);
+        return;
+    }
+
     if (modelParams.modelType==ModelType::MolecularDynamics)
     {
         ImGui::SeparatorText("Initial Configuration");
@@ -1673,6 +1829,16 @@ inline void AppState::DrawInitialsPanelContent()
 
 inline void AppState::DrawODESolverParametersPanelContent()
 {
+    if (modelParams.modelType==ModelType::RandomWalk)
+    {
+        ImGui::SeparatorText("Stepping");
+        ImGui::InputDouble("Step Size (dt)", &rwParams.dt, 0.01, 0.1, "%.15g");
+        if (ImGui::InputInt("Steps", &rwParams.steps, 1, 100)) rwParams.steps = std::max(1, rwParams.steps);
+        if (ImGui::InputInt("Stride (samples)", &rwParams.stride, 1, 10)) rwParams.stride = std::max(1, rwParams.stride);
+        ImGui::TextDisabled("Random walks use their own stochastic stepping (no ODE solver).");
+        return;
+    }
+
     if (modelParams.modelType==ModelType::MolecularDynamics)
     {
         ImGui::SeparatorText("Integration");
@@ -2232,6 +2398,135 @@ inline void AppState::StartMolecularDynamics()
     hasSimRan = true;
 }
 
+inline void AppState::StartRandomWalk(bool fresh)
+{
+    const int steps  = std::max(1, rwParams.steps);
+    const int stride = std::max(1, rwParams.stride);
+    const double dt  = rwParams.dt;
+    const size_t trailCount = static_cast<size_t>(std::max(1, plotParams.trailCount));
+
+    if (fresh || !rwEngineInitialized)
+    {
+        // (Re)build the engine from scratch.
+        MathEngine::RandomWalkConfig cfg;
+        cfg.numWalkers = rwParams.numWalkers;
+        cfg.width  = rwParams.width;
+        cfg.height = rwParams.height;
+        cfg.size   = rwParams.size;
+        cfg.startX = rwParams.startX;
+        cfg.startY = rwParams.startY;
+        cfg.stepSize = rwParams.stepSize;
+        cfg.moveStyle = static_cast<MathEngine::WalkerMoveStyle>(rwParams.moveStyle);
+        cfg.boundary  = static_cast<MathEngine::BoundaryMode>(rwParams.boundary);
+        cfg.seed   = static_cast<std::uint64_t>(std::max(1, rwParams.seed));
+        rwEngine = MathEngine::RandomWalk(cfg);
+        rwEngineInitialized = true;
+
+        std::lock_guard<std::mutex> lock(plotParams.plotMutex);
+        plotParams.plotX.clear();
+        plotParams.plotY.clear();
+        plotParams.plotXTrail.clear();
+        plotParams.plotYTrail.clear();
+        plotParams.liveState.clear();
+        plotParams.offset = 0;
+        rwRunState.clear();
+    }
+    else
+    {
+        // Continue: apply the per-run knobs (move style & step size) to the live engine.
+        rwEngine.moveStyle = static_cast<MathEngine::WalkerMoveStyle>(rwParams.moveStyle);
+        rwEngine.stepSize  = rwParams.stepSize;
+    }
+
+    simProgress.store(0.0f);
+    timeInv.store(static_cast<float>(1.0 / static_cast<double>(steps)));
+
+    auto runRW = [this, steps, stride, dt, trailCount, fresh]()
+    {
+        try
+        {
+            auto record = [&](double t, const MathEngine::WalkerObservables& o)
+            {
+                std::lock_guard<std::mutex> lock(plotParams.plotMutex);
+                plotParams.plotX.push_back(t);
+                plotParams.plotY.push_back(o.msd);   // main plot: MSD vs step
+                rwRunState.posX.assign(rwEngine.numWalkers, 0.0);
+                rwRunState.posY.assign(rwEngine.numWalkers, 0.0);
+                for (size_t i = 0; i < rwEngine.numWalkers; ++i)
+                    rwEngine.Display(rwRunState.posX[i], rwRunState.posY[i], i);
+                rwRunState.time.push_back(t);
+                rwRunState.meanX.push_back(o.meanX);
+                rwRunState.meanY.push_back(o.meanY);
+                rwRunState.meanX2.push_back(o.meanX2);
+                rwRunState.meanY2.push_back(o.meanY2);
+                rwRunState.varX.push_back(o.varX);
+                rwRunState.varY.push_back(o.varY);
+                rwRunState.covXY.push_back(o.covXY);
+                rwRunState.meanR.push_back(o.meanR);
+                rwRunState.rmsR.push_back(o.rmsR);
+                rwRunState.msd.push_back(o.msd);
+                rwRunState.diffusion.push_back(o.diffusion);
+                rwRunState.radiusOfGyration.push_back(o.radiusOfGyration);
+            };
+            // Trailing subplot: full-resolution MSD (no stride), ring buffer.
+            auto recordTrail = [&](double t, double msd)
+            {
+                std::lock_guard<std::mutex> lock(plotParams.plotMutex);
+                if (plotParams.plotXTrail.size() < trailCount)
+                {
+                    plotParams.plotXTrail.push_back(t);
+                    plotParams.plotYTrail.push_back(msd);
+                }
+                else if (trailCount > 0)
+                {
+                    plotParams.plotXTrail[plotParams.offset] = t;
+                    plotParams.plotYTrail[plotParams.offset] = msd;
+                    plotParams.offset = static_cast<size_t>((plotParams.offset + 1) % trailCount);
+                }
+            };
+
+            if (fresh)
+            {
+                const double t0 = static_cast<double>(rwEngine.stepCount) * dt;
+                const MathEngine::WalkerObservables o0 = MathEngine::CollectObservables(rwEngine, t0);
+                record(t0, o0);
+                recordTrail(t0, o0.msd);
+            }
+
+            for (int s = 0; s < steps; ++s)
+            {
+                rwEngine.Step();
+                const double t = static_cast<double>(rwEngine.stepCount) * dt;
+                const MathEngine::WalkerObservables o = MathEngine::CollectObservables(rwEngine, t);
+                recordTrail(t, o.msd);
+                if ((s + 1) % stride == 0 || s + 1 == steps)
+                    record(t, o);
+                simProgress.store(static_cast<float>(static_cast<double>(s + 1) / static_cast<double>(steps)));
+            }
+        }
+        catch (...) {}
+        simProgress.store(1.0f);
+        isSimRunning.store(false);
+    };
+
+    #ifndef __EMSCRIPTEN__
+    simThread = std::thread(runRW);
+    #else
+    runRW();  // Web: synchronous run.
+    #endif
+    hasSimRan = true;
+}
+
+inline void AppState::AdvanceRandomWalk()
+{
+    if (isSimRunning.load()) return;
+    if (simThread.joinable()) simThread.join();
+    processStartTime = std::chrono::steady_clock::now();
+    simProgress.store(0.0f);
+    isSimRunning.store(true);
+    StartRandomWalk(false);
+}
+
 inline void AppState::StartSimulation()
 {
     // Do not start a new simulation while one is still running.
@@ -2247,6 +2542,11 @@ inline void AppState::StartSimulation()
     if (modelParams.modelType==ModelType::MolecularDynamics)
     {
         StartMolecularDynamics();
+        return;
+    }
+    if (modelParams.modelType==ModelType::RandomWalk)
+    {
+        StartRandomWalk(true);
         return;
     }
     // constexpr size_t Stride = 25;
@@ -2529,6 +2829,46 @@ inline void AppState::DrawPlotWindow()
             }
             ImGui::End();
         }
+        else if (modelParams.modelType==ModelType::RandomWalk && plotParams.showPlotSecond)
+        {
+            const ImGuiViewport* viewport = ImGui::GetMainViewport();
+            ImVec2 center = viewport->GetCenter();
+            ImGui::SetNextWindowPos(center, ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
+            ImGui::SetNextWindowSize(ImVec2(500, 460), ImGuiCond_FirstUseEver);
+            if (ImGui::Begin("Walkers",&plotParams.showPlotSecond))
+            {
+                ImVec2 availableSpace = ImGui::GetContentRegionAvail();
+                if (ImPlot::BeginPlot("Walker Positions",availableSpace))
+                {
+                    ImPlot::SetupAxes("x","y");
+                    if (rwParams.boundary==RWBoundary::Free)
+                    {
+                        // Free boundary: auto-scale the view to the walkers' extent.
+                        double minX = 0.0, maxX = 1.0, minY = 0.0, maxY = 1.0;
+                        if (!rwRunState.posX.empty())
+                        {
+                            auto [x0,x1] = std::minmax_element(rwRunState.posX.begin(), rwRunState.posX.end());
+                            auto [y0,y1] = std::minmax_element(rwRunState.posY.begin(), rwRunState.posY.end());
+                            minX = *x0; maxX = *x1; minY = *y0; maxY = *y1;
+                            if (minX >= maxX) { minX -= 1.0; maxX += 1.0; }
+                            if (minY >= maxY) { minY -= 1.0; maxY += 1.0; }
+                        }
+                        ImPlot::SetupAxesLimits(minX, maxX, minY, maxY, ImPlotCond_Always);
+                    }
+                    else
+                    {
+                        ImPlot::SetupAxesLimits(0.0, std::max(1.0, rwParams.width), 0.0, std::max(1.0, rwParams.height), ImPlotCond_Always);
+                    }
+                    ImPlotSpec spec;
+                    if (!plotParams.plotSecondColors.empty())
+                        spec.LineColor = plotParams.plotSecondColors[0];
+                    ImPlot::PlotScatter("walkers", rwRunState.posX.data(), rwRunState.posY.data(),
+                                        static_cast<int>(rwRunState.posX.size()), spec);
+                    ImPlot::EndPlot();
+                }
+            }
+            ImGui::End();
+        }
         if (plotParams.showPlotThird)
         {
             const size_t nM = (modelParams.modelType==ModelType::OttAntonsen) ? modelParams.oaC : modelParams.nModules;
@@ -2610,18 +2950,22 @@ inline void AppState::DrawPlotPanelContent()
             plotParams.plotColors.push_back(ImVec4(0.2f,0.8f,0.8f,1.0f));
         ImGui::ColorEdit4(mainColorLabel.c_str(),&plotParams.plotColors[0].x);
     }
-    if (modelParams.modelType==ModelType::Kuramoto || modelParams.modelType==ModelType::MolecularDynamics)
+    if (modelParams.modelType==ModelType::Kuramoto || modelParams.modelType==ModelType::MolecularDynamics || modelParams.modelType==ModelType::RandomWalk)
     {
         const bool isMD = (modelParams.modelType==ModelType::MolecularDynamics);
-        if (ImGui::CollapsingHeader(isMD ? "Particles Plot##second plot" : "\U0001D73D Plot##second plot"))
+        const bool isRW = (modelParams.modelType==ModelType::RandomWalk);
+        const char* secondHeader = isMD ? "Particles Plot##second plot" : (isRW ? "Walkers Plot##second plot" : "\U0001D73D Plot##second plot");
+        const char* secondShow   = isMD ? "Show Particles Plot" : (isRW ? "Show Walkers Plot" : "Show \U0001D73D Plot");
+        const char* secondColor  = isMD ? "Particle Color" : (isRW ? "Walker Color" : "\U0001D73D Colors");
+        if (ImGui::CollapsingHeader(secondHeader))
         {
-            ImGui::Checkbox(isMD ? "Show Particles Plot" : "Show \U0001D73D Plot", &plotParams.showPlotSecond);
+            ImGui::Checkbox(secondShow, &plotParams.showPlotSecond);
             ImGui::Spacing();
             ImGui::SeparatorText("Line Color##second plot");
             ImGui::Spacing();
             if (plotParams.plotSecondColors.empty())
                 plotParams.plotSecondColors.push_back(ImVec4(0.2f,0.8f,0.8f,1.0f));
-            ImGui::ColorEdit4(isMD ? "Particle Color" : "\U0001D73D Colors",&plotParams.plotSecondColors[0].x);
+            ImGui::ColorEdit4(secondColor,&plotParams.plotSecondColors[0].x);
         }
     }
     const bool showModules = (modelParams.modelType==ModelType::OttAntonsen && modelParams.oaType==OAType::OAGeneral)
