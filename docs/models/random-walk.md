@@ -89,13 +89,14 @@ The GUI (`src/AppState.hpp`) adds RandomWalk as a first-class `ModelType`:
 | Topology | Canvas Width/Height, Boundary Mode |
 | Initial Condition | Start X, Start Y, Seed |
 | Solver | Step size (dt), Steps, Stride (observable down-sampling) |
-| Run | **Begin Simulation** (fresh run) and **Advance +N steps** (continue from current state) |
+| Run | **Begin Simulation** (fresh run); **Advanced (Continue Run)** → Move Style, Move Size, Steps, and **Advance +N steps** |
 | Plot | MSD-vs-step (main) + trailing subplot (full resolution) + walker scatter (auto-scales for `Free`) |
 | Save | `Observables.csv` (11 columns) and `FinalState.csv` |
 
 The engine is persisted between runs, so **Advance** continues the walk from its
-current positions and RNG state, applying the current move style and step size —
-useful for evolving a lightweight system further without restarting.
+current positions and RNG state, applying the move style / move size / step count
+set in the Run panel's *Advanced* section — useful for evolving a lightweight
+system further without restarting.
 
 ## Reference
 

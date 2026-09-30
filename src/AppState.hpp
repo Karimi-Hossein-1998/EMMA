@@ -302,6 +302,12 @@ struct RWParams
 
     int moveStyleIndex = 0;
     int boundaryIndex  = 2;   // Free by default
+
+    // Continuation ("Advance") settings, exposed in Run → Advanced.
+    RandomWalkMoveStyle continueMoveStyle = RandomWalkMoveStyle::Straight;
+    double continueStepSize = 1.0;
+    int    continueSteps    = 1000;
+    int    continueMoveStyleIndex = 0;
 };
 struct RWRunState
 {
@@ -725,18 +731,37 @@ inline void AppState::DrawRunPanelContent()
     ImGui::Spacing();
     RenderChrono();
     ImGui::Spacing();
-    bool running = isSimRunning.load();
+
+    const bool running = isSimRunning.load();
+
     if (running) ImGui::BeginDisabled();
     if (ImGui::Button(running ? "Running..." : "Begin Simulation", ImVec2(-1, 0))) StartSimulation();
+    if (running) ImGui::EndDisabled();
+
     if (modelParams.modelType==ModelType::RandomWalk)
     {
         ImGui::Spacing();
-        char advanceLabel[128];
-        snprintf(advanceLabel, sizeof(advanceLabel), "Advance +%d steps", std::max(1, rwParams.steps));
-        if (ImGui::Button(advanceLabel, ImVec2(-1, 0))) AdvanceRandomWalk();
-        ImGui::TextDisabled("Advance continues from the current walker state with the Move Style / Move Size in the Model tab.");
+        if (ImGui::CollapsingHeader("Advanced (Continue Run)"))
+        {
+            if (running) ImGui::BeginDisabled();
+
+            if (ImGui::Combo("Move Style##continue",&rwParams.continueMoveStyleIndex,rwMoveStyleNames,9))
+                rwParams.continueMoveStyle = static_cast<RandomWalkMoveStyle>(rwParams.continueMoveStyleIndex);
+            ImGui::InputDouble("Move Size##continue", &rwParams.continueStepSize, 0.01, 0.1, "%.15g");
+
+            int csteps = rwParams.continueSteps;
+            if (ImGui::InputInt("Steps##continue", &csteps, 1, 100))
+                rwParams.continueSteps = std::max(1, csteps);
+
+            ImGui::Spacing();
+            char advanceLabel[128];
+            snprintf(advanceLabel, sizeof(advanceLabel), "Advance +%d steps", rwParams.continueSteps);
+            if (ImGui::Button(advanceLabel, ImVec2(-1, 0))) AdvanceRandomWalk();
+
+            if (running) ImGui::EndDisabled();
+            ImGui::TextDisabled("Continues from the current walker state using the Move Style / Move Size / Steps above.");
+        }
     }
-    if (running) ImGui::EndDisabled();
 }
 
 inline MathEngine::IO::WriteOptions AppState::MakeWriteOptions(const std::filesystem::path& filePath, std::string_view header)
@@ -2400,9 +2425,14 @@ inline void AppState::StartMolecularDynamics()
 
 inline void AppState::StartRandomWalk(bool fresh)
 {
-    const int steps  = std::max(1, rwParams.steps);
+    // Per-run knobs: a fresh run uses the Model/Solver settings; a continuation
+    // uses the Run → Advanced settings (move style, move size, step count).
+    const int steps  = std::max(1, fresh ? rwParams.steps : rwParams.continueSteps);
     const int stride = std::max(1, rwParams.stride);
     const double dt  = rwParams.dt;
+    const MathEngine::WalkerMoveStyle moveStyle =
+        static_cast<MathEngine::WalkerMoveStyle>(fresh ? rwParams.moveStyle : rwParams.continueMoveStyle);
+    const double stepSize = fresh ? rwParams.stepSize : rwParams.continueStepSize;
     const size_t trailCount = static_cast<size_t>(std::max(1, plotParams.trailCount));
 
     if (fresh || !rwEngineInitialized)
@@ -2415,8 +2445,8 @@ inline void AppState::StartRandomWalk(bool fresh)
         cfg.size   = rwParams.size;
         cfg.startX = rwParams.startX;
         cfg.startY = rwParams.startY;
-        cfg.stepSize = rwParams.stepSize;
-        cfg.moveStyle = static_cast<MathEngine::WalkerMoveStyle>(rwParams.moveStyle);
+        cfg.stepSize = stepSize;
+        cfg.moveStyle = moveStyle;
         cfg.boundary  = static_cast<MathEngine::BoundaryMode>(rwParams.boundary);
         cfg.seed   = static_cast<std::uint64_t>(std::max(1, rwParams.seed));
         rwEngine = MathEngine::RandomWalk(cfg);
@@ -2434,8 +2464,8 @@ inline void AppState::StartRandomWalk(bool fresh)
     else
     {
         // Continue: apply the per-run knobs (move style & step size) to the live engine.
-        rwEngine.moveStyle = static_cast<MathEngine::WalkerMoveStyle>(rwParams.moveStyle);
-        rwEngine.stepSize  = rwParams.stepSize;
+        rwEngine.moveStyle = moveStyle;
+        rwEngine.stepSize  = stepSize;
     }
 
     simProgress.store(0.0f);
