@@ -273,10 +273,31 @@ public:
         for (size_t i = 0; i < numParticles; ++i)
         {
             const double r = radius[i];
-            if (posX[i] - r < 0.0)      { posX[i] = r;        velX[i] = -velX[i] * restitution; }
-            else if (posX[i] + r > width) { posX[i] = width - r; velX[i] = -velX[i] * restitution; }
-            if (posY[i] - r < 0.0)      { posY[i] = r;         velY[i] = -velY[i] * restitution; }
-            else if (posY[i] + r > height) { posY[i] = height - r; velY[i] = -velY[i] * restitution; }
+
+            // Reflect x into [r, width - r] via a folded ("periodic-reflection")
+            // map, which handles arbitrarily large overshoots (high velocities) in
+            // O(1) and keeps the particle strictly inside the box.
+            const double loX = r, hiX = width - r, spanX = hiX - loX;
+            if (spanX > 0.0)
+            {
+                const double period = 2.0 * spanX;
+                double f = std::fmod(posX[i] - loX, period);
+                if (f < 0.0) f += period;
+                if (f > spanX) { f = period - f; velX[i] = -velX[i] * restitution; }
+                posX[i] = loX + f;
+            }
+            else posX[i] = loX;
+
+            const double loY = r, hiY = height - r, spanY = hiY - loY;
+            if (spanY > 0.0)
+            {
+                const double period = 2.0 * spanY;
+                double f = std::fmod(posY[i] - loY, period);
+                if (f < 0.0) f += period;
+                if (f > spanY) { f = period - f; velY[i] = -velY[i] * restitution; }
+                posY[i] = loY + f;
+            }
+            else posY[i] = loY;
         }
     }
 

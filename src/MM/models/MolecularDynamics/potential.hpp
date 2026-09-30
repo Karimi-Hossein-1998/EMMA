@@ -145,7 +145,7 @@ inline void PairForceEnergy(double r2, PotentialType type, const PotentialParams
     {
         case PotentialType::Morse:
         {
-            const double r = std::sqrt(r2);
+            const double r = std::sqrt(rsafe);
             const double e = std::exp(-p.morseAlpha * (r - p.sigma));
             f0  = 2.0 * p.epsilon * p.morseAlpha * (1.0 - e) * e / r;
             pe0 = p.epsilon * (e * e - 2.0 * e);
@@ -153,24 +153,24 @@ inline void PairForceEnergy(double r2, PotentialType type, const PotentialParams
         }
         case PotentialType::SoftSphere:
         {
-            const double r = std::sqrt(r2);
+            const double r = std::sqrt(rsafe);
             const double u = std::pow(p.sigma / r, p.powerN);   // (sigma/r)^n
-            f0  = -p.powerN * p.epsilon * u / r2;               // (1/r) dU/dr
+            f0  = -p.powerN * p.epsilon * u / rsafe;            // (1/r) dU/dr
             pe0 = p.epsilon * u;
             break;
         }
         case PotentialType::Yukawa:
         {
-            const double r = std::sqrt(r2);
+            const double r = std::sqrt(rsafe);
             const double e = std::exp(-p.yukawaKappa * r);
-            f0  = -p.epsilon * p.sigma * e * (p.yukawaKappa / r2 + 1.0 / (r2 * r));
+            f0  = -p.epsilon * p.sigma * e * (p.yukawaKappa / rsafe + 1.0 / (rsafe * r));
             pe0 = p.epsilon * (p.sigma / r) * e;
             break;
         }
         case PotentialType::Coulomb2D:
         {
-            const double r = std::sqrt(r2);
-            f0  = -p.epsilon * p.sigma / (r2 * (r + p.sigma));
+            const double r = std::sqrt(rsafe);
+            f0  = -p.epsilon * p.sigma / (rsafe * (r + p.sigma));
             pe0 = p.epsilon * std::log((r + p.sigma) / r);
             break;
         }
