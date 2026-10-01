@@ -93,6 +93,26 @@ $$
 \end{array}
 $$
 
+## Order conditions
+
+A Runge–Kutta method has order $p$ if its coefficients satisfy the *Butcher order
+conditions*, obtained by matching the Taylor expansion of the numerical solution
+to that of the exact solution. With the row sums $c_i=\sum_j a_{ij}$, the
+conditions up to order 4 are:
+
+| Order | Conditions |
+|---|---|
+| 1 | $\sum_i b_i = 1$ |
+| 2 | $\sum_i b_i c_i = \tfrac12$ |
+| 3 | $\sum_i b_i c_i^2 = \tfrac13$, $\quad \sum_{i,j} b_i a_{ij} c_j = \tfrac16$ |
+| 4 | $\sum_i b_i c_i^3 = \tfrac14$, $\quad \sum_{i,j} b_i c_i a_{ij} c_j = \tfrac18$, $\quad \sum_{i,j} b_i a_{ij} c_j^2 = \tfrac1{12}$, $\quad \sum_{i,j,k} b_i a_{ij} a_{jk} c_k = \tfrac1{24}$ |
+
+(The conditions form a tree-ordered set; the $4^{\text{th}}$-order one
+$\sum b_i a_{ij} a_{jk} c_k = \tfrac1{24}$ is the "binary tree" condition.) The
+classical RK4 tableau can be checked against these: $c=(0,\tfrac12,\tfrac12,1)$,
+$b=(\tfrac16,\tfrac13,\tfrac13,\tfrac16)$ satisfy them, which is why RK4 is
+fourth-order.
+
 ## Order, error and stability
 
 A method of order $p$ has local truncation error $\mathcal{O}(\mathrm{d}t^{p+1})$

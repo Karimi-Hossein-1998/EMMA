@@ -67,17 +67,52 @@ struct RandomWalkConfig
 
 ### Diffusion scaling
 
-For an isotropic unit-step walk the displacement converges (by the central-limit
-theorem) to a 2D Gaussian of variance `MSD = t·⟨step²⟩`, hence:
+Let the $t$-th step of a given walker be the random vector
+$\mathbf{s}_t = (s_{t,x},\,s_{t,y})$, with independent, identically distributed
+steps of mean zero, $\langle\mathbf{s}\rangle=0$, and isotropic second moment
+$\langle s_x^2\rangle=\langle s_y^2\rangle=\tfrac12\langle\lVert\mathbf{s}\rVert^2\rangle$.
+The position after $t$ steps is the sum $\mathbf{r}(t)=\sum_{\tau=1}^{t}\mathbf{s}_\tau$.
+By the **central-limit theorem**, each Cartesian component converges to a Gaussian
+of variance $t\langle s_x^2\rangle$, so the displacement is a 2D Gaussian
 
-- `MSD = stepSize² · t` (linear in time, quadratic in step size);
-- `r_rms = √MSD ~ stepSize·√t`;
-- the mean distance `⟨|r|⟩` follows a Rayleigh distribution,
-  `⟨|r|⟩ → √(π/4)·√MSD ≈ 0.886·stepSize·√t`;
-- `D = MSD/(4t) = stepSize²·⟨step²⟩/(4)` (constant).
+$$
+P(\mathbf{r}) = \frac{1}{2\pi\sigma^2}\exp\!\left(-\frac{\lVert\mathbf{r}\rVert^{2}}{2\sigma^2}\right),
+\qquad
+\sigma^2 = t\,\langle s_x^2\rangle = \tfrac{t}{2}\langle\lVert\mathbf{s}\rVert^2\rangle.
+$$
 
-These serve as validation targets: for `Straight` with `stepSize = 1`,
-`⟨step²⟩ = 1` so `MSD = t` and `D = 1/4`. For `Diagonal`, `⟨step²⟩ = 2`.
+The mean-squared displacement is therefore
+
+$$
+\mathrm{MSD}(t) = \langle\lVert\mathbf{r}\rVert^2\rangle = 2\sigma^2 = t\,\langle\lVert\mathbf{s}\rVert^2\rangle,
+$$
+
+i.e. **linear in time** and quadratic in step size. The radial distance
+$\lVert\mathbf{r}\rVert$ then follows a **Rayleigh distribution**
+
+$$
+P(\lVert\mathbf{r}\rVert) = \frac{\lVert\mathbf{r}\rVert}{\sigma^2}\exp\!\left(-\frac{\lVert\mathbf{r}\rVert^{2}}{2\sigma^2}\right),
+$$
+
+whose mean is
+
+$$
+\langle\lVert\mathbf{r}\rVert\rangle
+= \sigma\sqrt{\frac{\pi}{2}}
+= \sqrt{\frac{\pi}{4}}\,\sqrt{\mathrm{MSD}}
+\approx 0.886\,\mathrm{stepSize}\,\sqrt{t}.
+$$
+
+Finally, Einstein's relation in $d$ dimensions, $\mathrm{MSD}=2d\,D\,t$, gives the
+diffusion coefficient
+
+$$
+D = \frac{\mathrm{MSD}}{4t} = \frac{\langle\lVert\mathbf{s}\rVert^2\rangle}{4},
+$$
+
+a constant. These serve as validation targets: for `Straight` with
+`stepSize = 1`, $\langle\lVert\mathbf{s}\rVert^2\rangle = 1$ so `MSD = t` and
+`D = 1/4`; for `Diagonal`, $\langle\lVert\mathbf{s}\rVert^2\rangle = 2$.
 
 ## App integration
 

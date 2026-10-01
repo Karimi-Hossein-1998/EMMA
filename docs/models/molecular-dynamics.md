@@ -36,6 +36,28 @@ $$
 
 This is the convention used by `ComputeKineticEnergy()` and the thermostats.
 
+**Why $T=E_{\mathrm{kin}}/N$ (equipartition).** In the canonical ensemble the
+velocity distribution is the Maxwell–Boltzmann distribution
+
+$$
+P(\mathbf{v}_i) \propto \exp\!\left(-\frac{m_i \lVert\mathbf{v}_i\rVert^{2}}{2T}\right),
+$$
+
+a product of two independent Gaussians of variance $T/m_i$ per component. The
+mean kinetic energy of a *single* component is therefore
+
+$$
+\left\langle \tfrac{1}{2}m_i v_{i\alpha}^{2}\right\rangle
+= \frac{T}{2},
+\qquad \alpha \in \{x,y\},
+$$
+
+so a particle with $d=2$ translational degrees of freedom carries
+$\langle \tfrac12 m_i \lVert\mathbf{v}_i\rVert^{2}\rangle = 2\cdot T/2 = T$. This
+is the equipartition theorem: each quadratic degree of freedom contributes
+$T/2$ (with $k_B=1$). Summing over $N$ particles gives
+$E_{\mathrm{kin}} = N T$, i.e. $T = E_{\mathrm{kin}}/N$.
+
 ---
 
 ## 2. Pair potentials
@@ -203,9 +225,69 @@ Applied on top of (or instead of) an NVE step; target temperature $T_0$.
 | Langevin | $\mathbf{v}\leftarrow e^{-\gamma\,\mathrm{d}t}\mathbf{v}+\sqrt{(1-e^{-2\gamma\,\mathrm{d}t})\,T_0/m}\,\boldsymbol{\xi}$ | friction + FDT noise (exact OU update) |
 | Nosé–Hoover | extended variable $\xi$: $\dot\xi=\dfrac{2E_{\mathrm{kin}}-N_{\mathrm{dof}}T_0}{Q}$, $\dot{\mathbf{v}}=\mathbf{F}/m-\xi\mathbf{v}$, $Q=N_{\mathrm{dof}}T_0\tau^2$ | canonical sampling |
 
-The Langevin thermostat uses the **exact Ornstein–Uhlenbeck** update for the
-free-particle part (unconditionally stable for any friction $\gamma$), whose
-stationary variance is exactly $T_0/m$ by the fluctuation–dissipation theorem.
+### Langevin thermostat — fluctuation–dissipation theorem
+
+The Langevin thermostat couples each particle to a heat bath through a friction
+force and a fluctuating force,
+
+$$
+m\,\frac{\mathrm{d}\mathbf{v}}{\mathrm{d}t}
+= -\gamma\,\mathbf{v} + \boldsymbol{\eta}(t),
+\qquad
+\langle \boldsymbol{\eta}(t)\rangle = 0,
+\qquad
+\langle \eta_\alpha(t)\,\eta_\beta(t')\rangle
+= 2\gamma\,T\,\delta_{\alpha\beta}\,\delta(t-t'),
+$$
+
+where $\gamma$ is the friction and $\boldsymbol{\eta}$ is white noise. The
+fluctuation–dissipation theorem (FDT) fixes the noise amplitude to $2\gamma T$ —
+the same $\gamma$ that appears in the damping — so that the stationary
+distribution of $\mathbf{v}$ is the Maxwell–Boltzmann distribution at temperature
+$T$. Equivalently, each velocity component is an Ornstein–Uhlenbeck process whose
+stationary variance is $T/m$.
+
+The engine uses the **exact** solution of the free-particle Ornstein–Uhlenbeck
+process over one step (unconditionally stable for any $\gamma$),
+
+$$
+\mathbf{v}(t+\mathrm{d}t)
+= e^{-\gamma\,\mathrm{d}t}\,\mathbf{v}(t)
++ \sqrt{\frac{T}{m}\left(1-e^{-2\gamma\,\mathrm{d}t}\right)}\;\boldsymbol{\xi},
+\qquad \xi_\alpha \sim \mathcal{N}(0,1),
+$$
+
+whose variance is exactly $T/m$ for any step size.
+
+### Nosé–Hoover thermostat — the extended system
+
+The Nosé–Hoover thermostat is deterministic: it appends a single "friction"
+variable $\xi$ whose dynamics drive the kinetic temperature toward $T_0$. It
+derives from the extended Hamiltonian
+
+$$
+\mathcal{H}_{\mathrm{NH}}
+= \sum_i \frac{\lVert\mathbf{p}_i\rVert^{2}}{2m_i} + V(\mathbf{q})
++ \frac{p_s^{2}}{2Q} + (N_{\mathrm{dof}}+1)\,T_0\,s,
+$$
+
+where $s$ is an extra "position" (with momentum $p_s$ and inertia $Q$) that
+rescales time, and $N_{\mathrm{dof}}$ is the number of degrees of freedom. After
+the standard change of variables to the friction coefficient
+$\xi = p_s/Q$ and the thermostat inertia $Q = N_{\mathrm{dof}}\,T_0\,\tau^{2}$
+(with relaxation time $\tau$), Hamilton's equations become
+
+$$
+\dot{\mathbf{v}}_i = \frac{\mathbf{F}_i}{m_i} - \xi\,\mathbf{v}_i,
+\qquad
+\dot{\xi} = \frac{\sum_i m_i\lVert\mathbf{v}_i\rVert^{2}
+             - N_{\mathrm{dof}}\,T_0}{Q}
+         = \frac{2 E_{\mathrm{kin}} - N_{\mathrm{dof}}\,T_0}{Q}.
+$$
+
+These are exactly the equations integrated by `StepNoseHoover`. The extended
+system preserves the canonical distribution in the $(q,p,s,p_s)$ phase space, so
+the physical marginals sample the canonical ensemble at temperature $T_0$.
 
 ---
 
@@ -220,15 +302,52 @@ $$
 (\mathbf{r}_i,\,L_x,\,L_y) \leftarrow \mu\,(\mathbf{r}_i,\,L_x,\,L_y).
 $$
 
-The 2D virial pressure is
+### Virial theorem derivation
+
+Define the *virial* $G = \sum_i \mathbf{p}_i\cdot\mathbf{r}_i$. Its time
+derivative is
 
 $$
-P = \rho T + \frac{1}{2V}\sum_i \mathbf{r}_i\cdot\mathbf{F}_i,
-\qquad \rho = N/V,
+\frac{\mathrm{d}G}{\mathrm{d}t}
+= \sum_i \left(\dot{\mathbf{p}}_i\cdot\mathbf{r}_i
+             + \mathbf{p}_i\cdot\dot{\mathbf{r}}_i\right)
+= \sum_i \mathbf{F}_i^{\mathrm{tot}}\cdot\mathbf{r}_i
+  + \sum_i \frac{\lVert\mathbf{p}_i\rVert^{2}}{m_i}
+= \sum_i \mathbf{F}_i^{\mathrm{tot}}\cdot\mathbf{r}_i
+  + 2 E_{\mathrm{kin}},
 $$
 
-which — with $\mathbf{r}_{ij}=\mathbf{r}_j-\mathbf{r}_i$ and the force
-$\mathbf{f}_{ij}$ **on** particle $i$ — is evaluated as
+using Newton's second law $\dot{\mathbf{p}}_i = \mathbf{F}_i^{\mathrm{tot}}$. In
+a stationary state $\langle \mathrm{d}G/\mathrm{d}t\rangle = 0$ (the virial is
+bounded), and equipartition gives $\langle E_{\mathrm{kin}}\rangle = \tfrac{d}{2}N T$, so
+
+$$
+\left\langle \sum_i \mathbf{F}_i^{\mathrm{tot}}\cdot\mathbf{r}_i \right\rangle
+= -2\langle E_{\mathrm{kin}}\rangle = -d\,N T .
+$$
+
+Split the total force into internal pairwise forces and the force exerted by the
+walls, $\mathbf{F}_i^{\mathrm{tot}} = \mathbf{F}_i^{\mathrm{int}} + \mathbf{F}_i^{\mathrm{wall}}$.
+The wall contribution is the (negative) pressure work,
+$\langle \sum_i \mathbf{F}_i^{\mathrm{wall}}\cdot\mathbf{r}_i\rangle = -d\,P V$,
+so
+
+$$
+\langle W\rangle - d P V = -d N T,
+\qquad
+W := \sum_i \mathbf{r}_i\cdot\mathbf{F}_i^{\mathrm{int}},
+$$
+
+i.e.
+
+$$
+P = \rho T + \frac{1}{dV}\langle W\rangle,
+\qquad \rho = N/V.
+$$
+
+For pairwise forces, $W = \sum_{i<j}(\mathbf{r}_i-\mathbf{r}_j)\cdot\mathbf{f}_{ij}$
+(Newton's third law), and with $\mathbf{r}_{ij}=\mathbf{r}_j-\mathbf{r}_i$ the
+2D pressure is evaluated as
 
 $$
 P = \frac{N T - \tfrac{1}{2}\sum_{i<j}\mathbf{r}_{ij}\cdot\mathbf{f}_{ij}}{V},
@@ -237,7 +356,7 @@ $$
 
 Repulsive forces have $\mathbf{r}_{ij}\cdot\mathbf{f}_{ij}<0$, so the minus sign
 makes the correction positive: repulsion raises the pressure above the ideal-gas
-value, as required by the virial theorem.
+value.
 
 ---
 

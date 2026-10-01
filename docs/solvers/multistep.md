@@ -23,6 +23,49 @@ $$
 The coefficients are precomputed up to order 10 in
 `src/MM/miscellany/ABM-Coefs/` and exposed via `abm_coefs::ab_coefs`.
 
+### Derivation (Newton backward-difference interpolation)
+
+The Adams–Bashforth coefficients follow by integrating the polynomial that
+interpolates $f$ through the past $k$ points. Let
+$s=(t-t_n)/\mathrm{d}t$ and expand $f$ in Newton backward-difference form,
+
+$$
+f(t_n + s\,\mathrm{d}t)
+= f_n + s\,\nabla f_n + \frac{s(s+1)}{2!}\,\nabla^{2} f_n
++ \frac{s(s+1)(s+2)}{3!}\,\nabla^{3} f_n + \cdots,
+$$
+
+where $\nabla$ is the backward-difference operator
+($\nabla f_n = f_n - f_{n-1}$, $\nabla^{2} f_n = f_n - 2 f_{n-1} + f_{n-2}$, …).
+Integrating term by term over $s\in[0,1]$,
+
+$$
+\int_0^1 1\,\mathrm{d}s = 1,\quad
+\int_0^1 s\,\mathrm{d}s = \frac12,\quad
+\int_0^1 \frac{s(s+1)}{2}\,\mathrm{d}s = \frac5{12},\quad
+\int_0^1 \frac{s(s+1)(s+2)}{6}\,\mathrm{d}s = \frac38,
+$$
+
+gives
+
+$$
+y_{n+1} = y_n + \mathrm{d}t\left[
+f_n + \tfrac12\nabla f_n + \tfrac5{12}\nabla^{2} f_n
++ \tfrac38\nabla^{3} f_n + \cdots\right].
+$$
+
+Expanding the differences and collecting coefficients of
+$f_n, f_{n-1}, f_{n-2}, f_{n-3}$ reproduces the order-4 table:
+
+$$
+y_{n+1} = y_n + \frac{\mathrm{d}t}{24}
+\left(55 f_n - 59 f_{n-1} + 37 f_{n-2} - 9 f_{n-3}\right).
+$$
+
+The Adams–Moulton coefficients are derived identically, except the interpolating
+polynomial is taken through $f_{n+1}$ *and* the past points, so the quadrature
+starts at $s=1$ (extending back to $s=0$).
+
 ## Adams–Moulton (implicit corrector)
 
 The corrector uses $f_{n+1}$ as well:
