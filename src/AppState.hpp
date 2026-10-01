@@ -6,6 +6,7 @@
 #include "MM/models/OA-Ansatz.hpp"
 #include "MM/models/molecular-dynamics.hpp"
 #include "MM/models/random-walk.hpp"
+#include "MM/models/random-walk3d.hpp"
 #include "MM/solvers/ODE/rk/explicit/rk1-solver.hpp"
 #include "MM/solvers/ODE/rk/explicit/rk2-solver.hpp"
 #include "MM/solvers/ODE/rk/explicit/rk3-solver.hpp"
@@ -31,11 +32,13 @@
 // #include <climits>
 #include <cstddef>
 #include <cstring>
+#include <cstdint>
 #include <string>
 #include <mutex>
 #include <thread>
 #include <atomic>
 #include <chrono>
+#include <unordered_map>
 
 static constexpr const uint8_t MultiStepOrderMin{1};
 static constexpr const uint8_t MultiStepOrderMax{10};
@@ -147,6 +150,11 @@ enum class RWBoundary
     Periodic=0,
     Reflective,
     Free
+};
+enum class RWDimensions
+{
+    TwoD=0,
+    ThreeD
 };
 enum class SolverMethod
 {
@@ -292,6 +300,9 @@ struct RWParams
     double startY   = 0.0;
     double stepSize = 1.0;   // distance moved per step
 
+    RWDimensions dim = RWDimensions::TwoD;
+    int dimIndex = 0;
+
     RandomWalkMoveStyle moveStyle = RandomWalkMoveStyle::Straight;
     RWBoundary          boundary  = RWBoundary::Free;
     int    seed          = 41;
@@ -303,11 +314,23 @@ struct RWParams
     int moveStyleIndex = 0;
     int boundaryIndex  = 2;   // Free by default
 
+    // 3D-only settings
+    double depth  = 600.0;
+    double startZ = 0.0;
+    MathEngine::WalkerMoveStyle3D moveStyle3D = MathEngine::WalkerMoveStyle3D::Straight;
+    int moveStyle3DIndex = 0;
+
+    // 3D trail
+    bool showTrail   = true;
+    int  trailLength = 60;
+
     // Continuation ("Advance") settings, exposed in Run → Advanced.
     RandomWalkMoveStyle continueMoveStyle = RandomWalkMoveStyle::Straight;
+    MathEngine::WalkerMoveStyle3D continueMoveStyle3D = MathEngine::WalkerMoveStyle3D::Straight;
     double continueStepSize = 1.0;
     int    continueSteps    = 1000;
     int    continueMoveStyleIndex = 0;
+    int    continueMoveStyle3DIndex = 0;
 };
 struct RWRunState
 {
@@ -321,6 +344,26 @@ struct RWRunState
         varX.clear(); varY.clear(); covXY.clear(); meanR.clear(); rmsR.clear();
         msd.clear(); diffusion.clear(); radiusOfGyration.clear();
     }
+};
+struct RWRunState3D
+{
+    MathEngine::dVec posX, posY, posZ;   // latest walker positions (display space)
+    std::vector<double> time, meanX, meanY, meanZ, varX, varY, varZ,
+                        covXY, covXZ, covYZ, meanR, rmsR, msd, diffusion, radiusOfGyration;
+    void clear()
+    {
+        posX.clear(); posY.clear(); posZ.clear();
+        time.clear(); meanX.clear(); meanY.clear(); meanZ.clear();
+        varX.clear(); varY.clear(); varZ.clear();
+        covXY.clear(); covXZ.clear(); covYZ.clear(); meanR.clear(); rmsR.clear();
+        msd.clear(); diffusion.clear(); radiusOfGyration.clear();
+    }
+};
+struct RWTrailCell3D
+{
+    float x = 0.0f, y = 0.0f, z = 0.0f;
+    unsigned char r = 255, g = 255, b = 255;
+    std::uint64_t age = 0;
 };
 struct DistParams
 {
@@ -473,6 +516,19 @@ class AppState
         RWRunState rwRunState;
         MathEngine::RandomWalk rwEngine;
         bool rwEngineInitialized = false;
+        RWRunState3D rwRunState3D;
+        MathEngine::RandomWalk3D rwEngine3D;
+        bool rwEngine3DInitialized = false;
+
+        // 3D viewport camera + render texture (raylib).
+        Camera3D rwCam = {};
+        float rwCamYaw = 0.6f, rwCamPitch = 0.35f, rwCamDistance = 60.0f;
+        RenderTexture2D rw3DTex = {};
+        int rw3DTexW = 0, rw3DTexH = 0;
+
+        // 3D fading trail (voxel cloud).
+        std::unordered_map<std::uint64_t, RWTrailCell3D> rwTrail3D;
+        std::uint64_t rwTrailMaxAge = 60;
         DistParams phaseParams;
         DistParams frqncParams;
         DistParams oaRhoParams{0.0, 0.5};               // initial order magnitude (rho)
@@ -582,6 +638,14 @@ class AppState
             "Diagonal + Center", "Straight Diagonal + Center", "Straight Continuous", "Diagonal Continuous",
             "Straight Diagonal Continuous"};
         static constexpr const char* rwBoundaryNames[] = {"Periodic", "Reflective", "Free"};
+        static constexpr const char* rwDimensionNames[] = {"2D", "3D"};
+        static constexpr const char* rwMoveStyle3DNames[] = {
+            "Straight", "Plane Diagonal", "Diagonal", "Full Diagonal",
+            "Straight + Plane Diagonal", "Straight + Diagonal", "Straight + Full Diagonal",
+            "Straight + Center", "Plane Diagonal + Center", "Diagonal + Center", "Full Diagonal + Center",
+            "Straight + Plane Diagonal + Center", "Straight + Diagonal + Center", "Straight + Full Diagonal + Center",
+            "Straight Continuous", "Plane Diagonal Continuous", "Diagonal Continuous", "Full Diagonal Continuous",
+            "Straight + Plane Diagonal Continuous", "Straight + Diagonal Continuous", "Straight + Full Diagonal Continuous"};
         static constexpr const char* adjNames[] = {"Random (Uniform)", "Random (Uniform Symmetric)", "Erdos-Renyi",
             "Erdos-Renyi (True Count)","Erdos-Renyi (Symmetric)", "Erdos-Renyi (Symmetric True Count)",
             "Small World", "Small World (Directed)", "Modular", "Hierarchical"};
@@ -602,9 +666,12 @@ class AppState
 		inline void DrawODESolverParametersPanelContent();
 		inline void RenderModals();
         inline void DrawPlotWindow();
+        inline void DrawRandomWalk3DViewport();
         inline void StartSimulation();
         inline void StartMolecularDynamics();
         inline void StartRandomWalk(bool fresh);
+        inline void StartRandomWalk2D(bool fresh);
+        inline void StartRandomWalk3D(bool fresh);
         inline void AdvanceRandomWalk();
         inline void DrawProgressBar();
         inline void DrawPlotPanelContent();
@@ -745,8 +812,16 @@ inline void AppState::DrawRunPanelContent()
         {
             if (running) ImGui::BeginDisabled();
 
-            if (ImGui::Combo("Move Style##continue",&rwParams.continueMoveStyleIndex,rwMoveStyleNames,9))
-                rwParams.continueMoveStyle = static_cast<RandomWalkMoveStyle>(rwParams.continueMoveStyleIndex);
+            if (rwParams.dim==RWDimensions::TwoD)
+            {
+                if (ImGui::Combo("Move Style##continue",&rwParams.continueMoveStyleIndex,rwMoveStyleNames,9))
+                    rwParams.continueMoveStyle = static_cast<RandomWalkMoveStyle>(rwParams.continueMoveStyleIndex);
+            }
+            else
+            {
+                if (ImGui::Combo("Move Style##continue3D",&rwParams.continueMoveStyle3DIndex,rwMoveStyle3DNames,21))
+                    rwParams.continueMoveStyle3D = static_cast<MathEngine::WalkerMoveStyle3D>(rwParams.continueMoveStyle3DIndex);
+            }
             ImGui::InputDouble("Move Size##continue", &rwParams.continueStepSize, 0.01, 0.1, "%.15g");
 
             int csteps = rwParams.continueSteps;
@@ -857,7 +932,10 @@ inline std::filesystem::path AppState::BuildDefaultOutputPath()
     }
     else if (modelParams.modelType==ModelType::RandomWalk)
     {
-        folderName = "RandomWalk-" + std::string(rwMoveStyleNames[rwParams.moveStyleIndex])
+        const bool is3D = (rwParams.dim==RWDimensions::ThreeD);
+        const std::string style = is3D ? rwMoveStyle3DNames[rwParams.moveStyle3DIndex]
+                                       : rwMoveStyleNames[rwParams.moveStyleIndex];
+        folderName = std::string("RandomWalk") + (is3D ? "3D-" : "-") + style
                    + "-N" + std::to_string(rwParams.numWalkers);
     }
     else
@@ -1008,6 +1086,33 @@ inline bool AppState::WriteArtifactData(SaveArtifactKind kind, const std::filesy
         }
         case SaveArtifactKind::RWObservables:
         {
+            if (rwParams.dim==RWDimensions::ThreeD)
+            {
+                if (rwRunState3D.time.empty()) return false;
+                const size_t rows = rwRunState3D.time.size();
+                const size_t cols = 15;
+                MathEngine::dMatrix obs(rows, cols, 0.0);
+                for (size_t r = 0; r < rows; ++r)
+                {
+                    obs[r, 0]  = rwRunState3D.time[r];
+                    obs[r, 1]  = rwRunState3D.meanX[r];
+                    obs[r, 2]  = rwRunState3D.meanY[r];
+                    obs[r, 3]  = rwRunState3D.meanZ[r];
+                    obs[r, 4]  = rwRunState3D.varX[r];
+                    obs[r, 5]  = rwRunState3D.varY[r];
+                    obs[r, 6]  = rwRunState3D.varZ[r];
+                    obs[r, 7]  = rwRunState3D.covXY[r];
+                    obs[r, 8]  = rwRunState3D.covXZ[r];
+                    obs[r, 9]  = rwRunState3D.covYZ[r];
+                    obs[r, 10] = rwRunState3D.meanR[r];
+                    obs[r, 11] = rwRunState3D.rmsR[r];
+                    obs[r, 12] = rwRunState3D.msd[r];
+                    obs[r, 13] = rwRunState3D.diffusion[r];
+                    obs[r, 14] = rwRunState3D.radiusOfGyration[r];
+                }
+                MathEngine::IO::WriteMatrix(obs, MakeWriteOptions(filePath, "time, meanX, meanY, meanZ, varX, varY, varZ, covXY, covXZ, covYZ, meanR, rmsR, msd, diffusion, radiusOfGyration"));
+                return true;
+            }
             if (rwRunState.time.empty()) return false;
             const size_t rows = rwRunState.time.size();
             const size_t cols = 11;
@@ -1031,6 +1136,20 @@ inline bool AppState::WriteArtifactData(SaveArtifactKind kind, const std::filesy
         }
         case SaveArtifactKind::RWFinalState:
         {
+            if (rwParams.dim==RWDimensions::ThreeD)
+            {
+                if (rwRunState3D.posX.empty()) return false;
+                const size_t N = rwRunState3D.posX.size();
+                MathEngine::dMatrix state(N, 3, 0.0);
+                for (size_t i = 0; i < N; ++i)
+                {
+                    state[i, 0] = rwRunState3D.posX[i];
+                    state[i, 1] = rwRunState3D.posY[i];
+                    state[i, 2] = rwRunState3D.posZ[i];
+                }
+                MathEngine::IO::WriteMatrix(state, MakeWriteOptions(filePath, "Final state (x, y, z)"));
+                return true;
+            }
             if (rwRunState.posX.empty()) return false;
             const size_t N = rwRunState.posX.size();
             MathEngine::dMatrix state(N, 2, 0.0);
@@ -1208,8 +1327,20 @@ inline void AppState::DrawModelPanelContent()
     }
     else if (modelParams.modelType==ModelType::RandomWalk)
     {
-        if (ImGui::Combo("Move Style",&rwParams.moveStyleIndex,rwMoveStyleNames,9))
-            rwParams.moveStyle = static_cast<RandomWalkMoveStyle>(rwParams.moveStyleIndex);
+        if (ImGui::Combo("Dimensions",&rwParams.dimIndex,rwDimensionNames,2))
+            rwParams.dim = static_cast<RWDimensions>(rwParams.dimIndex);
+        ImGui::Spacing();
+
+        if (rwParams.dim==RWDimensions::TwoD)
+        {
+            if (ImGui::Combo("Move Style",&rwParams.moveStyleIndex,rwMoveStyleNames,9))
+                rwParams.moveStyle = static_cast<RandomWalkMoveStyle>(rwParams.moveStyleIndex);
+        }
+        else
+        {
+            if (ImGui::Combo("Move Style##3D",&rwParams.moveStyle3DIndex,rwMoveStyle3DNames,21))
+                rwParams.moveStyle3D = static_cast<MathEngine::WalkerMoveStyle3D>(rwParams.moveStyle3DIndex);
+        }
         ImGui::InputDouble("Move Size (per step)", &rwParams.stepSize, 0.01, 0.1, "%.15g");
         ImGui::Spacing();
 
@@ -1229,6 +1360,8 @@ inline void AppState::DrawTopologyPanelContent()
         ImGui::SeparatorText("Canvas & Boundary Conditions");
         ImGui::InputDouble("Canvas Width", &rwParams.width, 1.0, 10.0, "%.15g");
         ImGui::InputDouble("Canvas Height", &rwParams.height, 1.0, 10.0, "%.15g");
+        if (rwParams.dim==RWDimensions::ThreeD)
+            ImGui::InputDouble("Canvas Depth", &rwParams.depth, 1.0, 10.0, "%.15g");
         if (ImGui::Combo("Boundary Mode",&rwParams.boundaryIndex,rwBoundaryNames,3))
             rwParams.boundary = static_cast<RWBoundary>(rwParams.boundaryIndex);
         if (rwParams.boundary==RWBoundary::Free)
@@ -1531,6 +1664,8 @@ inline void AppState::DrawInitialsPanelContent()
         ImGui::SeparatorText("Initial Configuration");
         ImGui::InputDouble("Start X", &rwParams.startX, 0.1, 1.0, "%.15g");
         ImGui::InputDouble("Start Y", &rwParams.startY, 0.1, 1.0, "%.15g");
+        if (rwParams.dim==RWDimensions::ThreeD)
+            ImGui::InputDouble("Start Z", &rwParams.startZ, 0.1, 1.0, "%.15g");
         ImGui::InputInt("Seed##RW-IC", &rwParams.seed, 1, 10);
         return;
     }
@@ -2425,6 +2560,12 @@ inline void AppState::StartMolecularDynamics()
 
 inline void AppState::StartRandomWalk(bool fresh)
 {
+    if (rwParams.dim == RWDimensions::ThreeD) StartRandomWalk3D(fresh);
+    else StartRandomWalk2D(fresh);
+}
+
+inline void AppState::StartRandomWalk2D(bool fresh)
+{
     // Per-run knobs: a fresh run uses the Model/Solver settings; a continuation
     // uses the Run → Advanced settings (move style, move size, step count).
     const int steps  = std::max(1, fresh ? rwParams.steps : rwParams.continueSteps);
@@ -2543,6 +2684,169 @@ inline void AppState::StartRandomWalk(bool fresh)
     simThread = std::thread(runRW);
     #else
     runRW();  // Web: synchronous run.
+    #endif
+    hasSimRan = true;
+}
+
+inline void AppState::StartRandomWalk3D(bool fresh)
+{
+    const int steps  = std::max(1, fresh ? rwParams.steps : rwParams.continueSteps);
+    const int stride = std::max(1, rwParams.stride);
+    const double dt  = rwParams.dt;
+    const MathEngine::WalkerMoveStyle3D moveStyle =
+        static_cast<MathEngine::WalkerMoveStyle3D>(fresh ? rwParams.moveStyle3D : rwParams.continueMoveStyle3D);
+    const double stepSize = fresh ? rwParams.stepSize : rwParams.continueStepSize;
+    const size_t trailCount = static_cast<size_t>(std::max(1, plotParams.trailCount));
+
+    if (fresh || !rwEngine3DInitialized)
+    {
+        MathEngine::RandomWalk3DConfig cfg;
+        cfg.numWalkers = rwParams.numWalkers;
+        cfg.width  = rwParams.width;
+        cfg.height = rwParams.height;
+        cfg.depth  = rwParams.depth;
+        cfg.size   = rwParams.size;
+        cfg.startX = rwParams.startX;
+        cfg.startY = rwParams.startY;
+        cfg.startZ = rwParams.startZ;
+        cfg.stepSize = stepSize;
+        cfg.moveStyle = moveStyle;
+        cfg.boundary  = static_cast<MathEngine::BoundaryMode>(rwParams.boundary);
+        cfg.seed   = static_cast<std::uint64_t>(std::max(1, rwParams.seed));
+        rwEngine3D = MathEngine::RandomWalk3D(cfg);
+        rwEngine3DInitialized = true;
+
+        // Reset the viewport camera to frame the box (or origin for free).
+        const bool free = (rwParams.boundary == RWBoundary::Free);
+        rwCamYaw = 0.6f; rwCamPitch = 0.35f;
+        rwCamDistance = static_cast<float>(std::max(std::max(rwParams.width, rwParams.height), rwParams.depth) * 1.5);
+
+        std::lock_guard<std::mutex> lock(plotParams.plotMutex);
+        plotParams.plotX.clear();
+        plotParams.plotY.clear();
+        plotParams.plotXTrail.clear();
+        plotParams.plotYTrail.clear();
+        plotParams.liveState.clear();
+        plotParams.offset = 0;
+        rwRunState3D.clear();
+        rwTrail3D.clear();
+        rwTrailMaxAge = static_cast<std::uint64_t>(std::max(1, rwParams.trailLength));
+        (void)free;
+    }
+    else
+    {
+        rwEngine3D.moveStyle = moveStyle;
+        rwEngine3D.stepSize  = stepSize;
+    }
+
+    simProgress.store(0.0f);
+    timeInv.store(static_cast<float>(1.0 / static_cast<double>(steps)));
+
+    auto runRW3D = [this, steps, stride, dt, trailCount, fresh]()
+    {
+        try
+        {
+            auto voxelKey = [](double x, double y, double z) -> std::uint64_t
+            {
+                const int ix = static_cast<int>(std::floor(x));
+                const int iy = static_cast<int>(std::floor(y));
+                const int iz = static_cast<int>(std::floor(z));
+                return static_cast<std::uint64_t>(static_cast<std::uint32_t>(ix))
+                     | (static_cast<std::uint64_t>(static_cast<std::uint32_t>(iy)) << 21)
+                     | (static_cast<std::uint64_t>(static_cast<std::uint32_t>(iz)) << 42);
+            };
+
+            auto record = [&](double t, const MathEngine::WalkerObservables3D& o)
+            {
+                std::lock_guard<std::mutex> lock(plotParams.plotMutex);
+                plotParams.plotX.push_back(t);
+                plotParams.plotY.push_back(o.msd);
+                rwRunState3D.posX = rwEngine3D.posX;
+                rwRunState3D.posY = rwEngine3D.posY;
+                rwRunState3D.posZ = rwEngine3D.posZ;
+                rwRunState3D.time.push_back(t);
+                rwRunState3D.meanX.push_back(o.meanX);
+                rwRunState3D.meanY.push_back(o.meanY);
+                rwRunState3D.meanZ.push_back(o.meanZ);
+                rwRunState3D.varX.push_back(o.varX);
+                rwRunState3D.varY.push_back(o.varY);
+                rwRunState3D.varZ.push_back(o.varZ);
+                rwRunState3D.covXY.push_back(o.covXY);
+                rwRunState3D.covXZ.push_back(o.covXZ);
+                rwRunState3D.covYZ.push_back(o.covYZ);
+                rwRunState3D.meanR.push_back(o.meanR);
+                rwRunState3D.rmsR.push_back(o.rmsR);
+                rwRunState3D.msd.push_back(o.msd);
+                rwRunState3D.diffusion.push_back(o.diffusion);
+                rwRunState3D.radiusOfGyration.push_back(o.radiusOfGyration);
+            };
+            auto recordTrail = [&](double t, double msd)
+            {
+                std::lock_guard<std::mutex> lock(plotParams.plotMutex);
+                if (plotParams.plotXTrail.size() < trailCount)
+                {
+                    plotParams.plotXTrail.push_back(t);
+                    plotParams.plotYTrail.push_back(msd);
+                }
+                else if (trailCount > 0)
+                {
+                    plotParams.plotXTrail[plotParams.offset] = t;
+                    plotParams.plotYTrail[plotParams.offset] = msd;
+                    plotParams.offset = static_cast<size_t>((plotParams.offset + 1) % trailCount);
+                }
+            };
+            auto updateTrail3D = [&]()
+            {
+                std::lock_guard<std::mutex> lock(plotParams.plotMutex);
+                for (auto& [k, c] : rwTrail3D) (void)k, ++c.age;
+                for (auto it = rwTrail3D.begin(); it != rwTrail3D.end();)
+                {
+                    if (it->second.age > rwTrailMaxAge) it = rwTrail3D.erase(it);
+                    else ++it;
+                }
+                for (size_t i = 0; i < rwEngine3D.numWalkers; ++i)
+                {
+                    double x, y, z;
+                    rwEngine3D.Display(x, y, z, i);
+                    RWTrailCell3D cell;
+                    cell.x = static_cast<float>(x);
+                    cell.y = static_cast<float>(y);
+                    cell.z = static_cast<float>(z);
+                    cell.r = 255; cell.g = 255; cell.b = 255; cell.age = 0;
+                    rwTrail3D[voxelKey(x, y, z)] = cell;
+                }
+            };
+
+            if (fresh)
+            {
+                const double t0 = static_cast<double>(rwEngine3D.stepCount) * dt;
+                const MathEngine::WalkerObservables3D o0 = MathEngine::CollectObservables3D(rwEngine3D, t0);
+                record(t0, o0);
+                recordTrail(t0, o0.msd);
+                updateTrail3D();
+            }
+
+            for (int s = 0; s < steps; ++s)
+            {
+                rwEngine3D.Step();
+                const double t = static_cast<double>(rwEngine3D.stepCount) * dt;
+                const MathEngine::WalkerObservables3D o = MathEngine::CollectObservables3D(rwEngine3D, t);
+                updateTrail3D();
+                recordTrail(t, o.msd);
+                if ((s + 1) % stride == 0 || s + 1 == steps)
+                    record(t, o);
+                simProgress.store(static_cast<float>(static_cast<double>(s + 1) / static_cast<double>(steps)));
+            }
+        }
+        catch (...) {}
+        simProgress.store(1.0f);
+        isSimRunning.store(false);
+    };
+
+    #ifndef __EMSCRIPTEN__
+    simThread = std::thread(runRW3D);
+    #else
+    runRW3D();  // Web: synchronous run.
     #endif
     hasSimRan = true;
 }
@@ -2861,43 +3165,50 @@ inline void AppState::DrawPlotWindow()
         }
         else if (modelParams.modelType==ModelType::RandomWalk && plotParams.showPlotSecond)
         {
-            const ImGuiViewport* viewport = ImGui::GetMainViewport();
-            ImVec2 center = viewport->GetCenter();
-            ImGui::SetNextWindowPos(center, ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
-            ImGui::SetNextWindowSize(ImVec2(500, 460), ImGuiCond_FirstUseEver);
-            if (ImGui::Begin("Walkers",&plotParams.showPlotSecond))
+            if (rwParams.dim==RWDimensions::ThreeD)
             {
-                ImVec2 availableSpace = ImGui::GetContentRegionAvail();
-                if (ImPlot::BeginPlot("Walker Positions",availableSpace))
-                {
-                    ImPlot::SetupAxes("x","y");
-                    if (rwParams.boundary==RWBoundary::Free)
-                    {
-                        // Free boundary: auto-scale the view to the walkers' extent.
-                        double minX = 0.0, maxX = 1.0, minY = 0.0, maxY = 1.0;
-                        if (!rwRunState.posX.empty())
-                        {
-                            auto [x0,x1] = std::minmax_element(rwRunState.posX.begin(), rwRunState.posX.end());
-                            auto [y0,y1] = std::minmax_element(rwRunState.posY.begin(), rwRunState.posY.end());
-                            minX = *x0; maxX = *x1; minY = *y0; maxY = *y1;
-                            if (minX >= maxX) { minX -= 1.0; maxX += 1.0; }
-                            if (minY >= maxY) { minY -= 1.0; maxY += 1.0; }
-                        }
-                        ImPlot::SetupAxesLimits(minX, maxX, minY, maxY, ImPlotCond_Always);
-                    }
-                    else
-                    {
-                        ImPlot::SetupAxesLimits(0.0, std::max(1.0, rwParams.width), 0.0, std::max(1.0, rwParams.height), ImPlotCond_Always);
-                    }
-                    ImPlotSpec spec;
-                    if (!plotParams.plotSecondColors.empty())
-                        spec.LineColor = plotParams.plotSecondColors[0];
-                    ImPlot::PlotScatter("walkers", rwRunState.posX.data(), rwRunState.posY.data(),
-                                        static_cast<int>(rwRunState.posX.size()), spec);
-                    ImPlot::EndPlot();
-                }
+                DrawRandomWalk3DViewport();
             }
-            ImGui::End();
+            else
+            {
+                const ImGuiViewport* viewport = ImGui::GetMainViewport();
+                ImVec2 center = viewport->GetCenter();
+                ImGui::SetNextWindowPos(center, ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
+                ImGui::SetNextWindowSize(ImVec2(500, 460), ImGuiCond_FirstUseEver);
+                if (ImGui::Begin("Walkers",&plotParams.showPlotSecond))
+                {
+                    ImVec2 availableSpace = ImGui::GetContentRegionAvail();
+                    if (ImPlot::BeginPlot("Walker Positions",availableSpace))
+                    {
+                        ImPlot::SetupAxes("x","y");
+                        if (rwParams.boundary==RWBoundary::Free)
+                        {
+                            // Free boundary: auto-scale the view to the walkers' extent.
+                            double minX = 0.0, maxX = 1.0, minY = 0.0, maxY = 1.0;
+                            if (!rwRunState.posX.empty())
+                            {
+                                auto [x0,x1] = std::minmax_element(rwRunState.posX.begin(), rwRunState.posX.end());
+                                auto [y0,y1] = std::minmax_element(rwRunState.posY.begin(), rwRunState.posY.end());
+                                minX = *x0; maxX = *x1; minY = *y0; maxY = *y1;
+                                if (minX >= maxX) { minX -= 1.0; maxX += 1.0; }
+                                if (minY >= maxY) { minY -= 1.0; maxY += 1.0; }
+                            }
+                            ImPlot::SetupAxesLimits(minX, maxX, minY, maxY, ImPlotCond_Always);
+                        }
+                        else
+                        {
+                            ImPlot::SetupAxesLimits(0.0, std::max(1.0, rwParams.width), 0.0, std::max(1.0, rwParams.height), ImPlotCond_Always);
+                        }
+                        ImPlotSpec spec;
+                        if (!plotParams.plotSecondColors.empty())
+                            spec.LineColor = plotParams.plotSecondColors[0];
+                        ImPlot::PlotScatter("walkers", rwRunState.posX.data(), rwRunState.posY.data(),
+                                            static_cast<int>(rwRunState.posX.size()), spec);
+                        ImPlot::EndPlot();
+                    }
+                }
+                ImGui::End();
+            }
         }
         if (plotParams.showPlotThird)
         {
@@ -2961,6 +3272,106 @@ inline void AppState::DrawPlotWindow()
     }
 }
 
+inline void AppState::DrawRandomWalk3DViewport()
+{
+    ImGui::SetNextWindowSize(ImVec2(560, 480), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Walkers (3D)",&plotParams.showPlotSecond))
+    {
+        ImVec2 avail = ImGui::GetContentRegionAvail();
+        const int w = std::max(16, static_cast<int>(avail.x));
+        const int h = std::max(16, static_cast<int>(avail.y));
+
+        // (Re)create the render texture when the window is (re)sized.
+        if (rw3DTexW != w || rw3DTexH != h || rw3DTex.id == 0)
+        {
+            if (rw3DTex.id != 0) UnloadRenderTexture(rw3DTex);
+            rw3DTex = LoadRenderTexture(w, h);
+            rw3DTexW = w; rw3DTexH = h;
+        }
+
+        // Orbit / zoom controls (mouse drag + wheel).
+        if (ImGui::IsWindowHovered())
+        {
+            ImGuiIO& io = ImGui::GetIO();
+            if (ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+            {
+                rwCamYaw   -= io.MouseDelta.x * 0.01f;
+                rwCamPitch += io.MouseDelta.y * 0.01f;
+                rwCamPitch  = std::clamp(rwCamPitch, -1.5f, 1.5f);
+            }
+            rwCamDistance *= (1.0f - io.MouseWheel * 0.1f);
+            rwCamDistance  = std::clamp(rwCamDistance, 1.0f, 1.0e7f);
+        }
+
+        // Update camera from orbit parameters.
+        const bool free = (rwParams.boundary == RWBoundary::Free);
+        Vector3 target = free
+            ? Vector3{0.0f, 0.0f, 0.0f}
+            : Vector3{static_cast<float>(rwParams.width) * 0.5f,
+                      static_cast<float>(rwParams.height) * 0.5f,
+                      static_cast<float>(rwParams.depth) * 0.5f};
+        const float cp = std::cos(rwCamPitch), sp = std::sin(rwCamPitch);
+        const float cy = std::cos(rwCamYaw),   sy = std::sin(rwCamYaw);
+        rwCam.position = Vector3{ target.x + rwCamDistance * cp * sy,
+                                  target.y + rwCamDistance * sp,
+                                  target.z + rwCamDistance * cp * cy };
+        rwCam.target    = target;
+        rwCam.up        = Vector3{0.0f, 1.0f, 0.0f};
+        rwCam.fovy      = 60.0f;
+        rwCam.projection = CAMERA_PERSPECTIVE;
+
+        BeginTextureMode(rw3DTex);
+        ClearBackground(Color{5, 5, 5, 255});
+        BeginMode3D(rwCam);
+            // Spatial reference: ground grid + RGB = XYZ coordinate frame at world origin.
+            DrawGrid(20, std::max(1.0f, rwCamDistance * 0.1f));
+            const float axisLen = rwCamDistance * 0.3f;
+            const Vector3 origin{0.0f, 0.0f, 0.0f};
+            DrawLine3D(origin, Vector3{origin.x + axisLen, origin.y, origin.z}, RED);
+            DrawLine3D(origin, Vector3{origin.x, origin.y + axisLen, origin.z}, GREEN);
+            DrawLine3D(origin, Vector3{origin.x, origin.y, origin.z + axisLen}, BLUE);
+
+            // Fading trail: spheres that shrink and fade with age.
+            if (rwParams.showTrail && !rwTrail3D.empty())
+            {
+                BeginBlendMode(BLEND_ALPHA);
+                const float maxAge = static_cast<float>(std::max<std::uint64_t>(1, rwTrailMaxAge));
+                const float baseR = std::max(0.3f, rwCamDistance * 0.008f);
+                for (const auto& [k, c] : rwTrail3D)
+                {
+                    (void)k;
+                    const float fade = 1.0f - static_cast<float>(c.age) / maxAge;
+                    const float f = std::clamp(fade, 0.0f, 1.0f);
+                    if (f <= 0.0f) continue;
+                    DrawSphere(Vector3{c.x, c.y, c.z}, baseR * f,
+                               Color{ static_cast<unsigned char>(static_cast<float>(c.r) * f),
+                                      static_cast<unsigned char>(static_cast<float>(c.g) * f),
+                                      static_cast<unsigned char>(static_cast<float>(c.b) * f),
+                                      static_cast<unsigned char>(f * 255.0f) });
+                }
+                EndBlendMode();
+            }
+            // Walkers (current positions).
+            Color wc = WHITE;
+            if (!plotParams.plotSecondColors.empty())
+                wc = Color{ static_cast<unsigned char>(plotParams.plotSecondColors[0].x * 255.0f),
+                            static_cast<unsigned char>(plotParams.plotSecondColors[0].y * 255.0f),
+                            static_cast<unsigned char>(plotParams.plotSecondColors[0].z * 255.0f),
+                            static_cast<unsigned char>(plotParams.plotSecondColors[0].w * 255.0f) };
+            const float wrad = std::max(0.5f, rwCamDistance * 0.015f);
+            for (size_t i = 0; i < rwRunState3D.posX.size(); ++i)
+                DrawSphere(Vector3{ static_cast<float>(rwRunState3D.posX[i]),
+                                     static_cast<float>(rwRunState3D.posY[i]),
+                                     static_cast<float>(rwRunState3D.posZ[i]) }, wrad, wc);
+        EndMode3D();
+        EndTextureMode();
+
+        rlImGuiImageRenderTexture(&rw3DTex);
+        ImGui::TextDisabled("Left-drag: orbit    Scroll: zoom");
+    }
+    ImGui::End();
+}
+
 inline void AppState::DrawPlotPanelContent()
 {
     ImGui::SeparatorText("Plot Data Style");
@@ -2984,8 +3395,8 @@ inline void AppState::DrawPlotPanelContent()
     {
         const bool isMD = (modelParams.modelType==ModelType::MolecularDynamics);
         const bool isRW = (modelParams.modelType==ModelType::RandomWalk);
-        const char* secondHeader = isMD ? "Particles Plot##second plot" : (isRW ? "Walkers Plot##second plot" : "\U0001D73D Plot##second plot");
-        const char* secondShow   = isMD ? "Show Particles Plot" : (isRW ? "Show Walkers Plot" : "Show \U0001D73D Plot");
+        const char* secondHeader = isMD ? "Particles Plot##second plot" : (isRW ? (rwParams.dim==RWDimensions::ThreeD ? "Walkers Plot (3D)##second plot" : "Walkers Plot##second plot") : "\U0001D73D Plot##second plot");
+        const char* secondShow   = isMD ? "Show Particles Plot" : (isRW ? (rwParams.dim==RWDimensions::ThreeD ? "Show Walkers Plot (3D)" : "Show Walkers Plot") : "Show \U0001D73D Plot");
         const char* secondColor  = isMD ? "Particle Color" : (isRW ? "Walker Color" : "\U0001D73D Colors");
         if (ImGui::CollapsingHeader(secondHeader))
         {
@@ -2996,6 +3407,15 @@ inline void AppState::DrawPlotPanelContent()
             if (plotParams.plotSecondColors.empty())
                 plotParams.plotSecondColors.push_back(ImVec4(0.2f,0.8f,0.8f,1.0f));
             ImGui::ColorEdit4(secondColor,&plotParams.plotSecondColors[0].x);
+
+            if (isRW && rwParams.dim==RWDimensions::ThreeD)
+            {
+                ImGui::Spacing();
+                ImGui::SeparatorText("Trail (3D)");
+                ImGui::Checkbox("Show Trail", &rwParams.showTrail);
+                if (ImGui::InputInt("Trail Length", &rwParams.trailLength, 1, 10))
+                    rwParams.trailLength = std::max(1, rwParams.trailLength);
+            }
         }
     }
     const bool showModules = (modelParams.modelType==ModelType::OttAntonsen && modelParams.oaType==OAType::OAGeneral)

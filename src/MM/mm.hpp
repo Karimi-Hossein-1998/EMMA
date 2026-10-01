@@ -11,6 +11,7 @@
 #include "models/models.phase-oscillators.hpp"
 #include "models/molecular-dynamics.hpp"
 #include "models/random-walk.hpp"
+#include "models/random-walk3d.hpp"
 #include "network/topology.hpp"
 
 #include "solvers/ODE/rk/explicit/rk1-solver.hpp"

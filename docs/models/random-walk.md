@@ -120,18 +120,64 @@ The GUI (`src/AppState.hpp`) adds RandomWalk as a first-class `ModelType`:
 
 | Tab | Controls |
 |---|---|
-| Model | Move style (9 options), Move Size (step size), Walkers (N), Walker Size |
-| Topology | Canvas Width/Height, Boundary Mode |
-| Initial Condition | Start X, Start Y, Seed |
+| Model | **Dimensions (2D/3D)**, Move style (9 / 21 options), Move Size, Walkers (N), Walker Size |
+| Topology | Canvas Width/Height (+ Depth in 3D), Boundary Mode |
+| Initial Condition | Start X, Start Y (+ Start Z in 3D), Seed |
 | Solver | Step size (dt), Steps, Stride (observable down-sampling) |
 | Run | **Begin Simulation** (fresh run); **Advanced (Continue Run)** → Move Style, Move Size, Steps, and **Advance +N steps** |
-| Plot | MSD-vs-step (main) + trailing subplot (full resolution) + walker scatter (auto-scales for `Free`) |
-| Save | `Observables.csv` (11 columns) and `FinalState.csv` |
+| Plot | MSD-vs-step (main) + trailing subplot (full resolution) + walker scatter (2D auto-scale) / 3D viewport |
+| Save | `Observables.csv` (11 / 15 columns) and `FinalState.csv` (2 / 3 columns) |
 
 The engine is persisted between runs, so **Advance** continues the walk from its
 current positions and RNG state, applying the move style / move size / step count
 set in the Run panel's *Advanced* section — useful for evolving a lightweight
 system further without restarting.
+
+## 3D variant
+
+`RandomWalk3D` (`src/MM/models/RandomWalk3D/`, facade
+`src/MM/models/random-walk3d.hpp`) is a separate mirror of the 2D engine with a
+third axis. Positions are `posX/posY/posZ`, the box is
+`width × height × depth`, and the boundary modes apply per axis.
+
+### 3D move styles
+
+`WalkerMoveStyle3D` adds the third dimension, decomposing the 26-neighbourhood by
+the number of non-zero step components:
+
+| Style | Directions | $\langle\lVert\mathbf{s}\rVert^2\rangle$ |
+|---|---|---|
+| `Straight` | 6 cardinal | 1 |
+| `PlaneDiagonal` | 12 face diagonals | 2 |
+| `Diagonal` | 8 body diagonals | 3 |
+| `FullDiagonal` | 20 (plane + body) | 2.4 |
+| `StraightPlaneDiagonal` | 18 | 5/3 |
+| `StraightDiagonal` | 14 | 15/7 |
+| `StraightFullDiagonal` | 26 (full neighbourhood) | 27/13 |
+
+Each also has a `…WCenter` (adds a "stay") and a `…Continuous`
+(magnitude in `[0,1)`) variant — 21 styles in total.
+
+### 3D observables
+
+`CollectObservables3D` returns the same moments extended to three dimensions
+(`⟨z⟩`, `⟨z²⟩`, `Cov(xz)`, `Cov(yz)`, `σ_z²`, …). The diffusion coefficient uses
+Einstein's relation in 3D:
+
+$$
+D = \frac{\mathrm{MSD}}{6t},
+$$
+
+and the radial distance follows the 3D Maxwell limit
+$\langle\lVert\mathbf{r}\rVert\rangle \to \sqrt{8/(3\pi)}\,\sqrt{\mathrm{MSD}}
+\approx 0.921\,\sqrt{\mathrm{MSD}}$.
+
+### Rendering
+
+In the app the walker positions are shown in a **3D viewport** (raylib
+`Camera3D` rendered into a `RenderTexture2D`, embedded in an ImGui window with
+mouse orbit/zoom), while the observables remain ordinary 2D ImPlot plots. The
+trail is a **fading voxel cloud** (age-damped, matching the 2D fading trail).
 
 ## Reference
 
