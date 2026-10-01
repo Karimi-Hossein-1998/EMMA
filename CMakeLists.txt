@@ -4,6 +4,7 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # find_package(OpenMP REQUIRED)
+find_package(OpenMP REQUIRED)
 if(POLICY CMP0169)
 	cmake_policy(SET CMP0169 OLD)
 endif()
@@ -79,7 +80,7 @@ target_include_directories(EMMA PRIVATE
 	vendor/implot
 	vendor/rlImGui
 )
-target_link_libraries(EMMA PRIVATE raylib implot imgui rlImGui)
+target_link_libraries(EMMA PRIVATE raylib implot imgui rlImGui OpenMP::OpenMP_CXX)
 
 # Web: single-threaded (no COOP/COEP needed)
 if(EMSCRIPTEN)

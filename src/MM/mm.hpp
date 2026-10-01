@@ -10,6 +10,7 @@
 #include "initializers/initials.hpp"
 #include "models/models.phase-oscillators.hpp"
 #include "models/molecular-dynamics.hpp"
+#include "models/molecular-dynamics3d.hpp"
 #include "models/random-walk.hpp"
 #include "models/random-walk3d.hpp"
 #include "network/topology.hpp"

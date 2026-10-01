@@ -5,6 +5,7 @@
 #include "MM/models/kuramoto/special.hpp"
 #include "MM/models/OA-Ansatz.hpp"
 #include "MM/models/molecular-dynamics.hpp"
+#include "MM/models/molecular-dynamics3d.hpp"
 #include "MM/models/random-walk.hpp"
 #include "MM/models/random-walk3d.hpp"
 #include "MM/solvers/ODE/rk/explicit/rk1-solver.hpp"
@@ -133,6 +134,29 @@ enum class MDInitialConditionType
     TwoPhaseSlab,
     BinaryMixture
 };
+enum class MDDimensions
+{
+    TwoD=0,
+    ThreeD
+};
+enum class MolecularDynamicsType3D
+{
+    LennardJones=0,
+    WCA,
+    Morse,
+    SoftSphere,
+    Yukawa,
+    Coulomb3D
+};
+enum class MDInitialConditionType3D
+{
+    SC=0,
+    BCC,
+    FCC,
+    Random,
+    Slab,
+    Binary
+};
 enum class RandomWalkMoveStyle
 {
     Straight=0,
@@ -259,6 +283,12 @@ struct MDParams
     MDIntegratorType       integrator       = MDIntegratorType::VelocityVerlet;
     MDThermostatType       thermostat       = MDThermostatType::None;
 
+    MDDimensions dim = MDDimensions::TwoD;
+    int dimIndex = 0;
+    double depth = 11.0;   // 3D box depth
+    MolecularDynamicsType3D  potential3D       = MolecularDynamicsType3D::LennardJones;
+    MDInitialConditionType3D initialCondition3D = MDInitialConditionType3D::SC;
+
     double thermostatT   = 1.0;   // thermostat target temperature
     double thermostatTau = 2.0;   // Berendsen / Nose-Hoover relaxation time
     double langevinGamma = 1.0;   // Langevin friction
@@ -276,15 +306,33 @@ struct MDParams
     int initialConditionIndex  = 0;
     int integratorIndex        = 0;
     int thermostatIndex        = 0;
+    int potential3DIndex        = 0;
+    int initialCondition3DIndex = 0;
+};
+struct MDRunState3D
+{
+    MathEngine::dVec posX, posY, posZ, velX, velY, velZ;   // latest particle state
+    MathEngine::iVec species;                              // per-particle species (for colouring)
+    std::vector<double> time, temperature, kineticEnergy, potentialEnergy, totalEnergy,
+                        pressure, q4, q6, msd;
+    void clear()
+    {
+        posX.clear(); posY.clear(); posZ.clear(); velX.clear(); velY.clear(); velZ.clear();
+        species.clear();
+        time.clear(); temperature.clear(); kineticEnergy.clear(); potentialEnergy.clear();
+        totalEnergy.clear(); pressure.clear(); q4.clear(); q6.clear(); msd.clear();
+    }
 };
 struct MDRunState
 {
     MathEngine::dVec posX, posY, velX, velY;      // latest particle state (for the live view)
+    MathEngine::iVec species;                     // per-particle species (for colouring)
     std::vector<double> time, temperature, kineticEnergy, potentialEnergy, totalEnergy,
                         pressure, psi4, psi6, msd; // observables time series
     void clear()
     {
         posX.clear(); posY.clear(); velX.clear(); velY.clear();
+        species.clear();
         time.clear(); temperature.clear(); kineticEnergy.clear(); potentialEnergy.clear();
         totalEnergy.clear(); pressure.clear(); psi4.clear(); psi6.clear(); msd.clear();
     }
@@ -512,6 +560,13 @@ class AppState
         GeneralModelParams modelParams = GeneralModelParams(50);
         MDParams mdParams;
         MDRunState mdRunState;
+        MDRunState3D mdRunState3D;
+
+        // 3D viewport camera + render texture for molecular dynamics (raylib).
+        Camera3D mdCam = {};
+        float mdCamYaw = 0.6f, mdCamPitch = 0.35f, mdCamDistance = 60.0f;
+        RenderTexture2D md3DTex = {};
+        int md3DTexW = 0, md3DTexH = 0;
         RWParams rwParams;
         RWRunState rwRunState;
         MathEngine::RandomWalk rwEngine;
@@ -634,6 +689,8 @@ class AppState
         static constexpr const char* mdIntegratorNames[] = {"Velocity-Verlet", "Leapfrog"};
         static constexpr const char* mdThermostatNames[] = {"None", "Rescale", "Berendsen", "Andersen", "Langevin", "Nose-Hoover"};
         static constexpr const char* mdInitNames[] = {"Square Lattice", "Hexagonal Lattice", "Random", "Two-Phase Slab", "Binary Mixture"};
+        static constexpr const char* mdPotentialNames3D[] = {"Lennard-Jones", "WCA", "Morse", "Soft Sphere", "Yukawa", "Coulomb (3D)"};
+        static constexpr const char* mdInitNames3D[] = {"Simple Cubic", "BCC", "FCC", "Random", "Slab", "Binary"};
         static constexpr const char* rwMoveStyleNames[] = {"Straight", "Diagonal", "Straight Diagonal", "Straight + Center",
             "Diagonal + Center", "Straight Diagonal + Center", "Straight Continuous", "Diagonal Continuous",
             "Straight Diagonal Continuous"};
@@ -667,8 +724,11 @@ class AppState
 		inline void RenderModals();
         inline void DrawPlotWindow();
         inline void DrawRandomWalk3DViewport();
+        inline void DrawMolecularDynamics3DViewport();
         inline void StartSimulation();
         inline void StartMolecularDynamics();
+        inline void StartMolecularDynamics2D();
+        inline void StartMolecularDynamics3D();
         inline void StartRandomWalk(bool fresh);
         inline void StartRandomWalk2D(bool fresh);
         inline void StartRandomWalk3D(bool fresh);
@@ -692,9 +752,10 @@ class AppState
         // bond-orientational order psi6 for molecular dynamics).
         inline bool IsMD() const { return modelParams.modelType==ModelType::MolecularDynamics; }
         inline bool IsRW() const { return modelParams.modelType==ModelType::RandomWalk; }
-        inline const char* OrderSymbol() const { return IsMD() ? "\u03C8\u0036" : (IsRW() ? "MSD" : "\U0001D70C"); }
-        inline const char* OrderAxisLabel() const { return IsMD() ? "Bond-orientational order (\u03C8\u0036)" : (IsRW() ? "Mean-squared displacement (MSD)" : "Order (\U0001D70C)"); }
-        inline const char* OrderWindowTitle() const { return IsMD() ? "Order Parameter (\u03C8\u0036)" : (IsRW() ? "Mean-squared Displacement" : "Order Parameter"); }
+        inline bool IsMD3D() const { return IsMD() && mdParams.dim==MDDimensions::ThreeD; }
+        inline const char* OrderSymbol() const { return IsMD() ? (IsMD3D() ? "Q\u0036" : "\u03C8\u0036") : (IsRW() ? "MSD" : "\U0001D70C"); }
+        inline const char* OrderAxisLabel() const { return IsMD() ? (IsMD3D() ? "Bond-orientational order (Q\u0036)" : "Bond-orientational order (\u03C8\u0036)") : (IsRW() ? "Mean-squared displacement (MSD)" : "Order (\U0001D70C)"); }
+        inline const char* OrderWindowTitle() const { return IsMD() ? (IsMD3D() ? "Order Parameter (Q\u0036)" : "Order Parameter (\u03C8\u0036)") : (IsRW() ? "Mean-squared Displacement" : "Order Parameter"); }
 };
 
 inline bool AppState::DrawActivityButton(const char* icon, const char* title, bool active)
@@ -927,7 +988,10 @@ inline std::filesystem::path AppState::BuildDefaultOutputPath()
     }
     else if (modelParams.modelType==ModelType::MolecularDynamics)
     {
-        folderName = "MolecularDynamics-" + std::string(mdPotentialNames[mdParams.potentialIndex])
+        const bool is3D = (mdParams.dim==MDDimensions::ThreeD);
+        const std::string pot = is3D ? mdPotentialNames3D[mdParams.potential3DIndex]
+                                     : mdPotentialNames[mdParams.potentialIndex];
+        folderName = std::string("MolecularDynamics") + (is3D ? "3D-" : "-") + pot
                    + "-N" + std::to_string(mdParams.numParticles);
     }
     else if (modelParams.modelType==ModelType::RandomWalk)
@@ -1050,6 +1114,23 @@ inline bool AppState::WriteArtifactData(SaveArtifactKind kind, const std::filesy
             return true;
         case SaveArtifactKind::MDFinalState:
         {
+            if (mdParams.dim==MDDimensions::ThreeD)
+            {
+                if (mdRunState3D.posX.empty()) return false;
+                const size_t N = mdRunState3D.posX.size();
+                MathEngine::dMatrix state(N, 6, 0.0);
+                for (size_t i = 0; i < N; ++i)
+                {
+                    state[i, 0] = mdRunState3D.posX[i];
+                    state[i, 1] = mdRunState3D.posY[i];
+                    state[i, 2] = mdRunState3D.posZ[i];
+                    state[i, 3] = mdRunState3D.velX[i];
+                    state[i, 4] = mdRunState3D.velY[i];
+                    state[i, 5] = mdRunState3D.velZ[i];
+                }
+                MathEngine::IO::WriteMatrix(state, MakeWriteOptions(filePath, "Final state (x, y, z, vx, vy, vz)"));
+                return true;
+            }
             if (mdRunState.posX.empty()) return false;
             const size_t N = mdRunState.posX.size();
             MathEngine::dMatrix state(N, 4, 0.0);
@@ -1065,6 +1146,27 @@ inline bool AppState::WriteArtifactData(SaveArtifactKind kind, const std::filesy
         }
         case SaveArtifactKind::MDObservables:
         {
+            if (mdParams.dim==MDDimensions::ThreeD)
+            {
+                if (mdRunState3D.time.empty()) return false;
+                const size_t rows = mdRunState3D.time.size();
+                const size_t cols = 9;
+                MathEngine::dMatrix obs(rows, cols, 0.0);
+                for (size_t r = 0; r < rows; ++r)
+                {
+                    obs[r, 0] = mdRunState3D.time[r];
+                    obs[r, 1] = mdRunState3D.temperature[r];
+                    obs[r, 2] = mdRunState3D.kineticEnergy[r];
+                    obs[r, 3] = mdRunState3D.potentialEnergy[r];
+                    obs[r, 4] = mdRunState3D.totalEnergy[r];
+                    obs[r, 5] = mdRunState3D.pressure[r];
+                    obs[r, 6] = mdRunState3D.q4[r];
+                    obs[r, 7] = mdRunState3D.q6[r];
+                    obs[r, 8] = mdRunState3D.msd[r];
+                }
+                MathEngine::IO::WriteMatrix(obs, MakeWriteOptions(filePath, "time, temperature, kineticEnergy, potentialEnergy, totalEnergy, pressure, q4, q6, msd"));
+                return true;
+            }
             if (mdRunState.time.empty()) return false;
             const size_t rows = mdRunState.time.size();
             const size_t cols = 9;
@@ -1303,8 +1405,21 @@ inline void AppState::DrawModelPanelContent()
     }
     else if (modelParams.modelType==ModelType::MolecularDynamics)
     {
-        if (ImGui::Combo("Potential",&mdParams.potentialIndex,mdPotentialNames,6))
-            mdParams.potential = static_cast<MolecularDynamicsType>(mdParams.potentialIndex);
+        const bool is3D = (mdParams.dim==MDDimensions::ThreeD);
+        if (ImGui::Combo("Dimensions",&mdParams.dimIndex,rwDimensionNames,2))
+            mdParams.dim = static_cast<MDDimensions>(mdParams.dimIndex);
+        ImGui::Spacing();
+
+        if (is3D)
+        {
+            if (ImGui::Combo("Potential##3D",&mdParams.potential3DIndex,mdPotentialNames3D,6))
+                mdParams.potential3D = static_cast<MolecularDynamicsType3D>(mdParams.potential3DIndex);
+        }
+        else
+        {
+            if (ImGui::Combo("Potential",&mdParams.potentialIndex,mdPotentialNames,6))
+                mdParams.potential = static_cast<MolecularDynamicsType>(mdParams.potentialIndex);
+        }
         ImGui::Spacing();
 
         int n = static_cast<int>(mdParams.numParticles);
@@ -1315,11 +1430,12 @@ inline void AppState::DrawModelPanelContent()
         ImGui::InputDouble("Sigma", &mdParams.sigma, 0.001, 0.1, "%.15g");
         ImGui::InputDouble("Epsilon", &mdParams.epsilon, 0.001, 0.1, "%.15g");
         ImGui::InputDouble("Cutoff Coefficient", &mdParams.cutoffCoeff, 0.01, 0.1, "%.15g");
-        if (mdParams.potential==MolecularDynamicsType::Morse)
+        const int potIdx = is3D ? mdParams.potential3DIndex : mdParams.potentialIndex;
+        if (potIdx == 2)
             ImGui::InputDouble("Morse Alpha", &mdParams.morseAlpha, 0.01, 0.1, "%.15g");
-        if (mdParams.potential==MolecularDynamicsType::SoftSphere)
+        if (potIdx == 3)
             ImGui::InputDouble("Exponent (n)", &mdParams.powerN, 0.1, 1.0, "%.15g");
-        if (mdParams.potential==MolecularDynamicsType::Yukawa)
+        if (potIdx == 4)
             ImGui::InputDouble("Screening (kappa)", &mdParams.yukawaKappa, 0.01, 0.1, "%.15g");
         ImGui::Spacing();
         ImGui::InputDouble("Temperature", &mdParams.temperature, 0.001, 0.01, "%.15g");
@@ -1376,6 +1492,8 @@ inline void AppState::DrawTopologyPanelContent()
         ImGui::SeparatorText("Box & Boundary Conditions");
         ImGui::InputDouble("Box Width", &mdParams.width, 1.0, 10.0, "%.15g");
         ImGui::InputDouble("Box Height", &mdParams.height, 1.0, 10.0, "%.15g");
+        if (mdParams.dim==MDDimensions::ThreeD)
+            ImGui::InputDouble("Box Depth", &mdParams.depth, 1.0, 10.0, "%.15g");
         ImGui::Checkbox("Periodic Boundary", &mdParams.periodicBoundaryCondition);
         ImGui::Checkbox("Bounce (walls)", &mdParams.bounce);
         ImGui::Checkbox("Hard-Sphere Collisions", &mdParams.hardSphereCollisions);
@@ -1673,12 +1791,25 @@ inline void AppState::DrawInitialsPanelContent()
     if (modelParams.modelType==ModelType::MolecularDynamics)
     {
         ImGui::SeparatorText("Initial Configuration");
-        if (ImGui::Combo("Configuration",&mdParams.initialConditionIndex,mdInitNames,5))
-            mdParams.initialCondition = static_cast<MDInitialConditionType>(mdParams.initialConditionIndex);
+        const bool is3D = (mdParams.dim==MDDimensions::ThreeD);
+        if (is3D)
+        {
+            if (ImGui::Combo("Configuration##3D",&mdParams.initialCondition3DIndex,mdInitNames3D,6))
+                mdParams.initialCondition3D = static_cast<MDInitialConditionType3D>(mdParams.initialCondition3DIndex);
+        }
+        else
+        {
+            if (ImGui::Combo("Configuration",&mdParams.initialConditionIndex,mdInitNames,5))
+                mdParams.initialCondition = static_cast<MDInitialConditionType>(mdParams.initialConditionIndex);
+        }
         ImGui::InputInt("Seed##MD-IC", &mdParams.seed, 1, 10);
-        if (mdParams.initialCondition==MDInitialConditionType::Random)
+        const bool isRandom = is3D ? (mdParams.initialCondition3D==MDInitialConditionType3D::Random)
+                                   : (mdParams.initialCondition==MDInitialConditionType::Random);
+        if (isRandom)
             ImGui::InputDouble("Min Separation (sigma)", &mdParams.minSeparation, 0.01, 0.1, "%.15g");
-        if (mdParams.initialCondition==MDInitialConditionType::BinaryMixture)
+        const bool isBinary = is3D ? (mdParams.initialCondition3D==MDInitialConditionType3D::Binary)
+                                   : (mdParams.initialCondition==MDInitialConditionType::BinaryMixture);
+        if (isBinary)
         {
             ImGui::InputDouble("Mass Ratio", &mdParams.massRatio, 0.1, 0.5, "%.15g");
             ImGui::InputDouble("Radius Ratio", &mdParams.radiusRatio, 0.1, 0.5, "%.15g");
@@ -2412,6 +2543,12 @@ inline void AppState::RenderModals()
 
 inline void AppState::StartMolecularDynamics()
 {
+    if (mdParams.dim==MDDimensions::ThreeD) StartMolecularDynamics3D();
+    else StartMolecularDynamics2D();
+}
+
+inline void AppState::StartMolecularDynamics2D()
+{
     MathEngine::MDConfig cfg;
     cfg.numParticles = mdParams.numParticles;
     cfg.width  = mdParams.width;
@@ -2484,6 +2621,7 @@ inline void AppState::StartMolecularDynamics()
                 plotParams.plotY.push_back(o.psi6);
                 mdRunState.posX = md.posX; mdRunState.posY = md.posY;
                 mdRunState.velX = md.velX; mdRunState.velY = md.velY;
+                mdRunState.species = md.species;
                 mdRunState.time.push_back(o.time);
                 mdRunState.temperature.push_back(o.temperature);
                 mdRunState.kineticEnergy.push_back(o.kineticEnergy);
@@ -2493,28 +2631,21 @@ inline void AppState::StartMolecularDynamics()
                 mdRunState.psi4.push_back(o.psi4);
                 mdRunState.psi6.push_back(o.psi6);
                 mdRunState.msd.push_back(o.msd);
-            };
-            // Trailing subplot: full-resolution psi6 at every step (ring buffer),
-            // so it shows fine-grained recent trends rather than stride-sampled data.
-            auto recordTrail = [&](double t)
-            {
-                const double psi6 = MathEngine::ComputeBondOrientationalOrder(md, 1.4).psi6;
-                std::lock_guard<std::mutex> lock(plotParams.plotMutex);
+                // Trailing subplot (same order parameter, ring buffer).
                 if (plotParams.plotXTrail.size() < plotParams.trailCount)
                 {
-                    plotParams.plotXTrail.push_back(t);
-                    plotParams.plotYTrail.push_back(psi6);
+                    plotParams.plotXTrail.push_back(o.time);
+                    plotParams.plotYTrail.push_back(o.psi6);
                 }
                 else if (plotParams.trailCount > 0)
                 {
-                    plotParams.plotXTrail[plotParams.offset] = t;
-                    plotParams.plotYTrail[plotParams.offset] = psi6;
+                    plotParams.plotXTrail[plotParams.offset] = o.time;
+                    plotParams.plotYTrail[plotParams.offset] = o.psi6;
                     plotParams.offset = static_cast<size_t>((plotParams.offset + 1) % plotParams.trailCount);
                 }
             };
 
             recordFull(0.0);
-            recordTrail(0.0);
             for (size_t s = 0; s < numSteps; ++s)
             {
                 if (mdThermostat == MDThermostatType::NoseHoover)
@@ -2538,7 +2669,6 @@ inline void AppState::StartMolecularDynamics()
                 if (barostat) MathEngine::ApplyBerendsenBarostat(md, targetPressure, dt, barostatTau);
 
                 const double t = static_cast<double>(s + 1) * dt;
-                recordTrail(t);   // every step: fine-grained trailing detail
                 if ((s + 1) % static_cast<size_t>(stride) == 0 || s + 1 == numSteps)
                     recordFull(t);
 
@@ -2554,6 +2684,150 @@ inline void AppState::StartMolecularDynamics()
     simThread = std::thread(runMD);
     #else
     runMD();  // Web: synchronous run.
+    #endif
+    hasSimRan = true;
+}
+
+inline void AppState::StartMolecularDynamics3D()
+{
+    MathEngine::MDConfig3D cfg;
+    cfg.numParticles = mdParams.numParticles;
+    cfg.width  = mdParams.width;
+    cfg.height = mdParams.height;
+    cfg.depth  = mdParams.depth;
+    cfg.mass         = mdParams.mass;
+    cfg.radius       = mdParams.radius;
+    cfg.massRatio    = mdParams.massRatio;
+    cfg.radiusRatio  = mdParams.radiusRatio;
+    cfg.sigma        = mdParams.sigma;
+    cfg.epsilon      = mdParams.epsilon;
+    cfg.cutoffCoeff  = mdParams.cutoffCoeff;
+    cfg.morseAlpha   = mdParams.morseAlpha;
+    cfg.powerN       = mdParams.powerN;
+    cfg.yukawaKappa  = mdParams.yukawaKappa;
+    cfg.temperature  = mdParams.temperature;
+    cfg.restitution  = mdParams.restitution;
+    cfg.minSeparation = mdParams.minSeparation;
+    cfg.seed         = static_cast<size_t>(std::max(1, mdParams.seed));
+    cfg.periodicBoundaryCondition = mdParams.periodicBoundaryCondition;
+    cfg.bounce         = mdParams.bounce;
+    cfg.hardSphereCollisions = mdParams.hardSphereCollisions;
+    cfg.potential        = static_cast<MathEngine::PotentialType3D>(mdParams.potential3D);
+    cfg.initialCondition = static_cast<MathEngine::InitialConditionType3D>(mdParams.initialCondition3D);
+
+    const double dt = mdParams.dt;
+    const double t1 = mdParams.t1;
+    const int stride = std::max(1, mdParams.stride);
+    const size_t numSteps = static_cast<size_t>(std::llround(t1 / dt));
+    if (numSteps == 0) { isSimRunning.store(false); return; }
+
+    timeInv.store(static_cast<float>(1.0 / std::abs(t1)));
+    simProgress.store(0.0f);
+
+    {
+        std::lock_guard<std::mutex> lock(plotParams.plotMutex);
+        plotParams.plotX.clear();
+        plotParams.plotY.clear();
+        plotParams.plotXTrail.clear();
+        plotParams.plotYTrail.clear();
+        plotParams.liveState.clear();
+        plotParams.offset = 0;
+        mdRunState3D.clear();
+    }
+
+    mdCamYaw = 0.6f; mdCamPitch = 0.35f;
+    mdCamDistance = static_cast<float>(std::max(std::max(mdParams.width, mdParams.height), mdParams.depth) * 1.5);
+
+    const auto mdIntegrator = mdParams.integrator;
+    const auto mdThermostat = mdParams.thermostat;
+    const double thermostatT   = mdParams.thermostatT;
+    const double thermostatTau = mdParams.thermostatTau;
+    const double langevinGamma  = mdParams.langevinGamma;
+    const double andersenNu     = mdParams.andersenNu;
+    const bool   barostat       = mdParams.barostat;
+    const double targetPressure = mdParams.targetPressure;
+    const double barostatTau    = mdParams.barostatTau;
+
+    auto runMD3D = [this, cfg, dt, stride, numSteps, mdIntegrator, mdThermostat,
+                    thermostatT, thermostatTau, langevinGamma, andersenNu,
+                    barostat, targetPressure, barostatTau]()
+    {
+        try
+        {
+            MathEngine::MolecularDynamics3D md(cfg);
+            size_t rngSeed = cfg.seed;
+
+            auto recordFull = [&](double t)
+            {
+                const MathEngine::Observables3D o = MathEngine::CollectObservables3D(md, t, 1.4);
+                std::lock_guard<std::mutex> lock(plotParams.plotMutex);
+                plotParams.plotX.push_back(o.time);
+                plotParams.plotY.push_back(o.q6);
+                mdRunState3D.posX = md.posX; mdRunState3D.posY = md.posY; mdRunState3D.posZ = md.posZ;
+                mdRunState3D.velX = md.velX; mdRunState3D.velY = md.velY; mdRunState3D.velZ = md.velZ;
+                mdRunState3D.species = md.species;
+                mdRunState3D.time.push_back(o.time);
+                mdRunState3D.temperature.push_back(o.temperature);
+                mdRunState3D.kineticEnergy.push_back(o.kineticEnergy);
+                mdRunState3D.potentialEnergy.push_back(o.potentialEnergy);
+                mdRunState3D.totalEnergy.push_back(o.totalEnergy);
+                mdRunState3D.pressure.push_back(o.pressure);
+                mdRunState3D.q4.push_back(o.q4);
+                mdRunState3D.q6.push_back(o.q6);
+                mdRunState3D.msd.push_back(o.msd);
+                // Trailing subplot (same order parameter, ring buffer).
+                if (plotParams.plotXTrail.size() < plotParams.trailCount)
+                {
+                    plotParams.plotXTrail.push_back(o.time);
+                    plotParams.plotYTrail.push_back(o.q6);
+                }
+                else if (plotParams.trailCount > 0)
+                {
+                    plotParams.plotXTrail[plotParams.offset] = o.time;
+                    plotParams.plotYTrail[plotParams.offset] = o.q6;
+                    plotParams.offset = static_cast<size_t>((plotParams.offset + 1) % plotParams.trailCount);
+                }
+            };
+
+            recordFull(0.0);
+            for (size_t s = 0; s < numSteps; ++s)
+            {
+                if (mdThermostat == MDThermostatType::NoseHoover)
+                {
+                    MathEngine::StepNoseHoover3D(md, dt, thermostatT, thermostatTau);
+                }
+                else
+                {
+                    if (mdIntegrator == MDIntegratorType::VelocityVerlet) md.Step(dt);
+                    else md.StepLeapfrog(dt);
+
+                    switch (mdThermostat)
+                    {
+                        case MDThermostatType::Rescale:   MathEngine::ApplyVelocityRescale3D(md, thermostatT); break;
+                        case MDThermostatType::Berendsen: MathEngine::ApplyBerendsen3D(md, thermostatT, dt, thermostatTau); break;
+                        case MDThermostatType::Andersen:  MathEngine::ApplyAndersen3D(md, thermostatT, dt, andersenNu, rngSeed); break;
+                        case MDThermostatType::Langevin:  MathEngine::ApplyLangevin3D(md, thermostatT, dt, langevinGamma, rngSeed); break;
+                        default: break;
+                    }
+                }
+                if (barostat) MathEngine::ApplyBerendsenBarostat3D(md, targetPressure, dt, barostatTau);
+
+                const double t = static_cast<double>(s + 1) * dt;
+                if ((s + 1) % static_cast<size_t>(stride) == 0 || s + 1 == numSteps)
+                    recordFull(t);
+
+                simProgress.store(static_cast<float>(static_cast<double>(s + 1) / static_cast<double>(numSteps)));
+            }
+        }
+        catch (...) {}
+        simProgress.store(1.0f);
+        isSimRunning.store(false);
+    };
+
+    #ifndef __EMSCRIPTEN__
+    simThread = std::thread(runMD3D);
+    #else
+    runMD3D();
     #endif
     hasSimRan = true;
 }
@@ -3111,27 +3385,43 @@ inline void AppState::DrawPlotWindow()
         }
         if (modelParams.modelType==ModelType::MolecularDynamics && plotParams.showPlotSecond)
         {
-            const ImGuiViewport* viewport = ImGui::GetMainViewport();
-            ImVec2 center = viewport->GetCenter();
-            ImGui::SetNextWindowPos(center, ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
-            ImGui::SetNextWindowSize(ImVec2(500, 460), ImGuiCond_FirstUseEver);
-            if (ImGui::Begin("Particles",&plotParams.showPlotSecond))
+            if (mdParams.dim==MDDimensions::ThreeD)
             {
-                ImVec2 availableSpace = ImGui::GetContentRegionAvail();
-                if (ImPlot::BeginPlot("Particle Positions",availableSpace))
-                {
-                    const double W = mdParams.width, H = mdParams.height;
-                    ImPlot::SetupAxes("x","y");
-                    ImPlot::SetupAxesLimits(0.0, std::max(1.0, W), 0.0, std::max(1.0, H), ImPlotCond_Always);
-                    ImPlotSpec spec;
-                    if (!plotParams.plotSecondColors.empty())
-                        spec.LineColor = plotParams.plotSecondColors[0];
-                    ImPlot::PlotScatter("particles", mdRunState.posX.data(), mdRunState.posY.data(),
-                                        static_cast<int>(mdRunState.posX.size()), spec);
-                    ImPlot::EndPlot();
-                }
+                DrawMolecularDynamics3DViewport();
             }
-            ImGui::End();
+            else
+            {
+                const ImGuiViewport* viewport = ImGui::GetMainViewport();
+                ImVec2 center = viewport->GetCenter();
+                ImGui::SetNextWindowPos(center, ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
+                ImGui::SetNextWindowSize(ImVec2(500, 460), ImGuiCond_FirstUseEver);
+                if (ImGui::Begin("Particles",&plotParams.showPlotSecond))
+                {
+                    ImVec2 availableSpace = ImGui::GetContentRegionAvail();
+                    if (ImPlot::BeginPlot("Particle Positions",availableSpace))
+                    {
+                        const double W = mdParams.width, H = mdParams.height;
+                        ImPlot::SetupAxes("x","y");
+                        ImPlot::SetupAxesLimits(0.0, std::max(1.0, W), 0.0, std::max(1.0, H), ImPlotCond_Always);
+                        // Per-species colouring (gold / cyan), matching the SDL renderer.
+                        const size_t N = mdRunState.posX.size();
+                        const bool hasSpecies = (mdRunState.species.size() == N);
+                        MathEngine::dVec x0, y0, x1, y1;
+                        for (size_t i = 0; i < N; ++i)
+                        {
+                            const int sp = hasSpecies ? mdRunState.species[i] : 0;
+                            if (sp == 0) { x0.push_back(mdRunState.posX[i]); y0.push_back(mdRunState.posY[i]); }
+                            else         { x1.push_back(mdRunState.posX[i]); y1.push_back(mdRunState.posY[i]); }
+                        }
+                        ImPlotSpec s0; s0.Marker = ImPlotMarker_Circle; s0.MarkerSize = 2.0f; s0.MarkerFillColor = ImVec4(1.0f, 0.804f, 0.235f, 1.0f);
+                        ImPlot::PlotScatter("species 0", x0.data(), y0.data(), static_cast<int>(x0.size()), s0);
+                        ImPlotSpec s1; s1.Marker = ImPlotMarker_Circle; s1.MarkerSize = 2.0f; s1.MarkerFillColor = ImVec4(0.235f, 0.784f, 1.0f, 1.0f);
+                        ImPlot::PlotScatter("species 1", x1.data(), y1.data(), static_cast<int>(x1.size()), s1);
+                        ImPlot::EndPlot();
+                    }
+                }
+                ImGui::End();
+            }
         }
         else if (modelParams.modelType==ModelType::Kuramoto && plotParams.showPlotSecond)
         {
@@ -3372,6 +3662,83 @@ inline void AppState::DrawRandomWalk3DViewport()
     ImGui::End();
 }
 
+inline void AppState::DrawMolecularDynamics3DViewport()
+{
+    ImGui::SetNextWindowSize(ImVec2(560, 480), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Particles (3D)",&plotParams.showPlotSecond))
+    {
+        ImVec2 avail = ImGui::GetContentRegionAvail();
+        const int w = std::max(16, static_cast<int>(avail.x));
+        const int h = std::max(16, static_cast<int>(avail.y));
+
+        if (md3DTexW != w || md3DTexH != h || md3DTex.id == 0)
+        {
+            if (md3DTex.id != 0) UnloadRenderTexture(md3DTex);
+            md3DTex = LoadRenderTexture(w, h);
+            md3DTexW = w; md3DTexH = h;
+        }
+
+        if (ImGui::IsWindowHovered())
+        {
+            ImGuiIO& io = ImGui::GetIO();
+            if (ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+            {
+                mdCamYaw   -= io.MouseDelta.x * 0.01f;
+                mdCamPitch += io.MouseDelta.y * 0.01f;
+                mdCamPitch  = std::clamp(mdCamPitch, -1.5f, 1.5f);
+            }
+            mdCamDistance *= (1.0f - io.MouseWheel * 0.1f);
+            mdCamDistance  = std::clamp(mdCamDistance, 1.0f, 1.0e7f);
+        }
+
+        const bool pbc = mdParams.periodicBoundaryCondition;
+        Vector3 target = pbc
+            ? Vector3{ static_cast<float>(mdParams.width) * 0.5f,
+                       static_cast<float>(mdParams.height) * 0.5f,
+                       static_cast<float>(mdParams.depth) * 0.5f }
+            : Vector3{0.0f, 0.0f, 0.0f};
+        const float cp = std::cos(mdCamPitch), sp = std::sin(mdCamPitch);
+        const float cy = std::cos(mdCamYaw),   sy = std::sin(mdCamYaw);
+        mdCam.position = Vector3{ target.x + mdCamDistance * cp * sy,
+                                  target.y + mdCamDistance * sp,
+                                  target.z + mdCamDistance * cp * cy };
+        mdCam.target    = target;
+        mdCam.up        = Vector3{0.0f, 1.0f, 0.0f};
+        mdCam.fovy      = 60.0f;
+        mdCam.projection = CAMERA_PERSPECTIVE;
+
+        BeginTextureMode(md3DTex);
+        ClearBackground(Color{5, 5, 5, 255});
+        BeginMode3D(mdCam);
+            // Spatial reference: grid + RGB = XYZ axes at the world origin.
+            DrawGrid(20, std::max(1.0f, mdCamDistance * 0.1f));
+            const float axisLen = mdCamDistance * 0.3f;
+            const Vector3 origin{0.0f, 0.0f, 0.0f};
+            DrawLine3D(origin, Vector3{origin.x + axisLen, origin.y, origin.z}, RED);
+            DrawLine3D(origin, Vector3{origin.x, origin.y + axisLen, origin.z}, GREEN);
+            DrawLine3D(origin, Vector3{origin.x, origin.y, origin.z + axisLen}, BLUE);
+
+            // Particles coloured by species (gold / cyan).
+            const size_t N = mdRunState3D.posX.size();
+            const bool hasSpecies = (mdRunState3D.species.size() == N);
+            const float scene = std::max({ mdCamDistance * 0.015f, 0.5f });
+            for (size_t i = 0; i < N; ++i)
+            {
+                const int sp = hasSpecies ? mdRunState3D.species[i] : 0;
+                const Color col = (sp == 0) ? Color{255, 205, 60, 255} : Color{60, 200, 255, 255};
+                DrawSphere(Vector3{ static_cast<float>(mdRunState3D.posX[i]),
+                                    static_cast<float>(mdRunState3D.posY[i]),
+                                    static_cast<float>(mdRunState3D.posZ[i]) }, scene, col);
+            }
+        EndMode3D();
+        EndTextureMode();
+
+        rlImGuiImageRenderTexture(&md3DTex);
+        ImGui::TextDisabled("Left-drag: orbit    Scroll: zoom");
+    }
+    ImGui::End();
+}
+
 inline void AppState::DrawPlotPanelContent()
 {
     ImGui::SeparatorText("Plot Data Style");
@@ -3395,8 +3762,8 @@ inline void AppState::DrawPlotPanelContent()
     {
         const bool isMD = (modelParams.modelType==ModelType::MolecularDynamics);
         const bool isRW = (modelParams.modelType==ModelType::RandomWalk);
-        const char* secondHeader = isMD ? "Particles Plot##second plot" : (isRW ? (rwParams.dim==RWDimensions::ThreeD ? "Walkers Plot (3D)##second plot" : "Walkers Plot##second plot") : "\U0001D73D Plot##second plot");
-        const char* secondShow   = isMD ? "Show Particles Plot" : (isRW ? (rwParams.dim==RWDimensions::ThreeD ? "Show Walkers Plot (3D)" : "Show Walkers Plot") : "Show \U0001D73D Plot");
+        const char* secondHeader = isMD ? (mdParams.dim==MDDimensions::ThreeD ? "Particles Plot (3D)##second plot" : "Particles Plot##second plot") : (isRW ? (rwParams.dim==RWDimensions::ThreeD ? "Walkers Plot (3D)##second plot" : "Walkers Plot##second plot") : "\U0001D73D Plot##second plot");
+        const char* secondShow   = isMD ? (mdParams.dim==MDDimensions::ThreeD ? "Show Particles Plot (3D)" : "Show Particles Plot") : (isRW ? (rwParams.dim==RWDimensions::ThreeD ? "Show Walkers Plot (3D)" : "Show Walkers Plot") : "Show \U0001D73D Plot");
         const char* secondColor  = isMD ? "Particle Color" : (isRW ? "Walker Color" : "\U0001D73D Colors");
         if (ImGui::CollapsingHeader(secondHeader))
         {
