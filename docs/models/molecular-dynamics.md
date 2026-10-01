@@ -67,8 +67,12 @@ which returns a scalar $f$ such that the force **on** particle $i$ (located at t
 origin of the separation vector $\mathbf{r}_{ij}=\mathbf{r}_j-\mathbf{r}_i$) is
 
 $$
-\mathbf{F}_{ij} = f\,(x_{ij},\,y_{ij}), \qquad f = \frac{1}{r}\,\frac{\mathrm{d}U}{\mathrm{d}r}.
+\mathbf{F}_{ij} = f\,\mathbf{r}_{ij}, \qquad f = \frac{1}{r}\,\frac{\mathrm{d}U}{\mathrm{d}r}.
 $$
+
+i.e. $\mathbf{F}_{ij} = \dfrac{\mathrm{d}U}{\mathrm{d}r}\,\hat{\mathbf{r}}_{ij}$,
+where $\hat{\mathbf{r}}_{ij} = \mathbf{r}_{ij}/r$ is the unit separation vector and
+$r = \lVert\mathbf{r}_{ij}\rVert$.
 
 ### 2.1 Lennard-Jones 12-6
 
@@ -154,18 +158,24 @@ strengths.
 ### 2.7 Shifted-force cutoff
 
 A plain truncation makes the force discontinuous at $r_c$, which leaks energy in
-NVE. The engine uses a **linear shifted-force** cutoff: for $r<r_c$,
+NVE. The engine uses a **linear shifted-force** cutoff: for $r<r_c$ the force is
+modified to reach zero continuously at $r_c$,
 
 $$
-f_{\mathrm{sf}}(r) = f(r) - \frac{f_c}{r_c}\,r,
+f_{\mathrm{sf}}(r) = f(r) - \frac{f_c}{r_c},
+\qquad
+\mathbf{F}_{\mathrm{sf}} = \mathbf{F}(r) - \frac{f_c}{r_c}\,\mathbf{r}_{ij},
 \qquad
 U_{\mathrm{sf}}(r) = U(r) - U(r_c) - \frac{f_c}{2 r_c}\left(r^2 - r_c^2\right),
 $$
 
-with $f_c = \mathrm{d}U/\mathrm{d}r\,\big|_{r_c}$ and $U_c=U(r_c)$. Then
-$f_{\mathrm{sf}}(r_c)=0$ and $U_{\mathrm{sf}}(r_c)=0$ continuously. The shift is
-linear in $r$ (equivalently in $r^2$), so it needs **no square root** in the inner
-loop — unlike the constant-force shift — keeping Lennard-Jones/WCA branch-free.
+with $f_c = \mathrm{d}U/\mathrm{d}r\,\big|_{r_c}$ and $U_c=U(r_c)$. The force
+*factor* $f$ is shifted by a constant $f_c/r_c$, which shifts the force *vector*
+by a term linear in $\mathbf{r}_{ij}$; hence the name. Both vanish continuously at
+the cutoff: $f_{\mathrm{sf}}(r_c)=0$ and $U_{\mathrm{sf}}(r_c)=0$. Because the
+factor shift is constant (equivalently the potential shift is quadratic in $r$),
+the inner loop needs **no square root** — unlike the constant-force shift —
+keeping Lennard-Jones/WCA branch-free.
 
 ---
 

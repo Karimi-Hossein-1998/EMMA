@@ -45,7 +45,7 @@ Substituting the expansion into the continuity equation and collecting the
 coefficient of $e^{in\theta}$ gives the infinite hierarchy
 
 $$
-\frac{\mathrm{d}a_n}{\mathrm{d}t}
+\frac{\partial a_n}{\partial t}
 = -i\,n\,\omega\,a_n
 + \frac{K\,n}{2}\left(r^{*}\,a_{n-1} - r\,a_{n+1}\right),
 \qquad n\ge 1 .
@@ -77,7 +77,7 @@ forever. (The restriction to this manifold is exact, not an approximation.) With
 $a_n = a^{n}$ the whole hierarchy collapses to the single equation
 
 $$
-\frac{\mathrm{d}a}{\mathrm{d}t}
+\frac{\partial a}{\partial t}
 = -i\,\omega\,a + \frac{K}{2}\left(r^{*} - r\,a^{2}\right),
 \qquad
 r(t) = \int g(\omega)\,a^{*}(\omega;t)\,\mathrm{d}\omega .
