@@ -3,8 +3,11 @@ project(EMMA LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-# find_package(OpenMP REQUIRED)
-find_package(OpenMP REQUIRED)
+# OpenMP for native multi-threaded builds only. Emscripten stays single-threaded
+# (no SharedArrayBuffer / COOP-COEP headers needed), so skip it on the web.
+if(NOT EMSCRIPTEN)
+    find_package(OpenMP REQUIRED)
+endif()
 if(POLICY CMP0169)
 	cmake_policy(SET CMP0169 OLD)
 endif()
@@ -66,7 +69,7 @@ target_compile_options(EMMA PRIVATE
 	-ffast-math
 )
 
-if(ENABLE_NATIVE_ARCH)
+if(ENABLE_NATIVE_ARCH AND NOT EMSCRIPTEN)
 	target_compile_options(EMMA PRIVATE -march=native)
 endif()
 
@@ -80,7 +83,10 @@ target_include_directories(EMMA PRIVATE
 	vendor/implot
 	vendor/rlImGui
 )
-target_link_libraries(EMMA PRIVATE raylib implot imgui rlImGui OpenMP::OpenMP_CXX)
+target_link_libraries(EMMA PRIVATE raylib implot imgui rlImGui)
+if(NOT EMSCRIPTEN)
+    target_link_libraries(EMMA PRIVATE OpenMP::OpenMP_CXX)
+endif()
 
 # Web: single-threaded (no COOP/COEP needed)
 if(EMSCRIPTEN)
