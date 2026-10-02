@@ -1,10 +1,12 @@
-# Molecular Dynamics (2D)
+# Molecular Dynamics (2D and 3D)
 
 The molecular-dynamics (MD) model simulates a collection of $N$ classical
-particles in two dimensions interacting through a pairwise potential. It is a
+particles interacting through a pairwise potential, in two dimensions (the main
+body of this page) or three (the [3D variant](#9-3d-variant)). It is a
 *condensed-matter* model — the analogue, for solids and liquids, of the Kuramoto
-order parameter is the **bond-orientational order** $\psi_6$, which the engine
-computes alongside the thermodynamics.
+order parameter is the **bond-orientational order** ($\psi_6$ in 2D, the
+Steinhardt $Q_6$ in 3D), which the engine computes alongside the
+thermodynamics.
 
 Files (all in `namespace MathEngine`, SDL/raylib-free):
 
@@ -15,6 +17,11 @@ Files (all in `namespace MathEngine`, SDL/raylib-free):
 | `models/MolecularDynamics/engine.hpp` | `MolecularDynamics` (SoA) engine + `MDConfig` + `IntegratorType` |
 | `models/MolecularDynamics/thermostats.hpp` | `ThermostatType` + barostat + pressure |
 | `models/MolecularDynamics/analysis.hpp` | $\psi_4/\psi_6$, RDF, MSD, energies, observables |
+
+The 3D mirror lives in `models/MolecularDynamics3D/` (same layout, `3D`-suffixed
+types): `potential.hpp` (with `Coulomb3D`), `initial-conditions.hpp` (SC/BCC/FCC
+lattices), `engine.hpp` (`MolecularDynamics3D`), `thermostats.hpp`,
+`analysis.hpp` (Steinhardt $Q_4/Q_6$).
 
 ---
 
@@ -219,7 +226,8 @@ generic RK/AB solvers. (`StepLeapfrog` is the equivalent position-Verlet form.)
 it exactly preserves a *shadow Hamiltonian* $\tilde{H}$ close to $H$, so the
 energy only oscillates with amplitude $\mathcal{O}(\mathrm{d}t^2)$ instead of
 drifting linearly. With the shifted-force cutoff, the measured NVE drift over
-$5\times10^3$ steps is $\sim 10^{-4}$ (see the validation harness).
+$5\times10^3$ steps at $\mathrm{d}t=10^{-3}$ is $\sim 10^{-6}$ (see the
+validation harness).
 
 ---
 
@@ -442,6 +450,90 @@ struct MDConfig { size_t numParticles; double width, height; double mass, radius
 **Analysis** — `ComputeBondOrientationalOrder`, `ComputeRDF`, `ComputeMSD`,
 `CollectObservables` (returns `Observables{time, temperature, kineticEnergy,
 potentialEnergy, totalEnergy, pressure, psi4, psi6, msd}`).
+
+---
+
+## 9. 3D variant
+
+`MolecularDynamics3D` (`src/MM/models/MolecularDynamics3D/`, facade
+`src/MM/models/molecular-dynamics3d.hpp`) is a separate mirror of the 2D engine
+with a third spatial dimension. It shares the shifted-force pair-potential
+kernel, the symplectic integrators, the thermostats and the barostat — only the
+*dimension-dependent* pieces differ.
+
+### 9.1 What changes in 3D
+
+| Concern | 2D | 3D |
+|---|---|---|
+| State | `posX, posY, velX, velY, accX, accY` | additionally `posZ, velZ, accZ` |
+| Box | `width × height` | `width × height × depth` |
+| Potential set | …, `Coulomb2D` (logarithmic) | …, `Coulomb3D` ($1/r$) |
+| Initial conditions | Square / Hexagonal lattice | **SC / BCC / FCC** lattice |
+| Temperature | $T = E_{\mathrm{kin}}/N$ | $T = 2E_{\mathrm{kin}}/(3N)$ |
+| Pressure | $P = (NT - \tfrac12 W)/V$ | $P = (NT - \tfrac13 W)/V$ |
+| Bond order | $\psi_4/\psi_6$ (in-plane) | **Steinhardt $Q_4/Q_6$** (3D) |
+| RDF shell | $2\pi r\,\mathrm{d}r$ | $4\pi r^2\,\mathrm{d}r$ |
+| Diffusion | $\mathrm{MSD} = 4Dt$ | $\mathrm{MSD} = 6Dt$ |
+
+### 9.2 Coulomb 3D
+
+In three dimensions the Coulomb interaction is the inverse-distance law rather
+than logarithmic:
+
+$$
+U(r) = \varepsilon\,\frac{\sigma}{r},
+\qquad
+\frac{\mathrm{d}U}{\mathrm{d}r} = -\varepsilon\,\frac{\sigma}{r^2}.
+$$
+
+The shifted-force cutoff of §2.7 applies unchanged.
+
+### 9.3 Steinhardt bond-orientational order $Q_l$
+
+The in-plane $\psi_n$ of §7.1 has no isotropic three-dimensional analogue; the
+standard replacement is the **Steinhardt order parameter**. The engine computes
+the *local* (Lechner–Dellago) form via the bond-angle identity, which avoids
+spherical harmonics entirely:
+
+$$
+q_l(i) = \sqrt{\frac{1}{N_i^2}\sum_{j,k\in\mathrm{nbr}(i)}
+P_l\!\left(\hat{\mathbf{r}}_{ij}\cdot\hat{\mathbf{r}}_{ik}\right)},
+\qquad
+Q_l = \frac{1}{N}\sum_{i=1}^{N} q_l(i),
+$$
+
+where $P_l$ is the Legendre polynomial ($l=4$ and $l=6$). For a perfect FCC
+crystal $Q_6 \approx 0.575$ and $Q_4 \approx 0.19$; in a liquid the residual
+order scales as $N_i^{-1/2}$ (the inverse square root of the coordination
+number, from the $j=k$ diagonal terms) and tends to zero as $N_i$ grows — the
+values the validation harness reproduces. (A single crystal makes the local and
+coherent definitions agree; the local form is used because it also detects order
+in polycrystals.)
+
+### 9.4 Temperature, pressure and diffusion in 3D
+
+Three translational degrees of freedom per particle give equipartition
+$E_{\mathrm{kin}} = \tfrac{3}{2}NT$, hence
+
+$$
+T = \frac{2E_{\mathrm{kin}}}{3N},
+$$
+
+and the virial pressure uses the $1/d = 1/3$ coefficient of §6:
+
+$$
+P = \frac{N T - \frac{1}{3}\sum_{i<j}\mathbf{r}_{ij}\cdot\mathbf{f}_{ij}}{V},
+\qquad V = L_x L_y L_z.
+$$
+
+Einstein's relation in 3D reads $\mathrm{MSD} = 6Dt$.
+
+### 9.5 Rendering
+
+In the app the 3D viewport reuses the RandomWalk3D approach: a raylib `Camera3D`
+rendered into a `RenderTexture2D` with mouse orbit/zoom, per-species colours
+(gold / cyan), and an RGB = XYZ coordinate frame anchored at the origin. There
+is no fading trail for MD.
 
 ## Use cases
 

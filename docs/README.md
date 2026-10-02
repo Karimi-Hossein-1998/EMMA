@@ -2,9 +2,9 @@
 
 EMMA is a graphical front-end for the header-only **Mathematical Modelling
 (MM)** toolkit living in `src/MM`. The toolkit provides numerical models
-(phase oscillators and a 2D molecular-dynamics engine), ODE solvers, network
-generators, initial-condition samplers, interpolators, and serialisation
-utilities, all under a single namespace.
+(phase oscillators, 2D and 3D molecular-dynamics engines, and 2D/3D random
+walks), ODE solvers, network generators, initial-condition samplers,
+interpolators, and serialisation utilities, all under a single namespace.
 
 This directory documents every module: what it is for, the mathematical
 conventions and derivations behind it, and the scientific context. It mirrors
@@ -26,8 +26,12 @@ the organisation of `src/MM`.
   struct SolverResults { dMatrix solution; dVec timePoints; /* steps/errors histories */ };
   ```
 
-- All code is header-only, C++23, and — for the molecular-dynamics engine —
-  independent of any rendering backend (the GUI renders via raylib/ImPlot).
+- All code is header-only, C++23. The molecular-dynamics, 3D molecular-dynamics
+  and random-walk engines are independent of any rendering backend (the GUI
+  renders via raylib/ImPlot).
+- The MD force loops are parallelised with OpenMP on native builds; the
+  Emscripten (web) build stays single-threaded (the `#pragma omp` directives are
+  compiled out when `_OPENMP` is undefined).
 
 ## Modules
 
