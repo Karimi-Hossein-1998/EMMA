@@ -2,8 +2,7 @@
 
 The Ott–Antonsen (OA) ansatz collapses the infinite-dimensional continuum
 Kuramoto model onto a finite set of ODEs for the order parameter(s). This page
-gives the derivation; the implementation notes live in
-[`src/MM/models/OA-Ansatz.md`](../../src/MM/models/OA-Ansatz.md).
+gives the derivation and the API implemented in `OA-Ansatz.hpp`.
 
 ---
 
@@ -156,7 +155,20 @@ All in `namespace MathEngine` (`src/MM/models/OA-Ansatz.hpp`):
 |---|---|
 | `OA(time, state, dstate, gamma, mu, K)` | single community, state `[x, y]` |
 | `OAGeneral(time, state, dstate, gammas, mus, eta, K)` | multi-community, interleaved `[x_0,y_0,x_1,y_1,...]` |
-| `OA_wrapper(OAParams)` / `OAGeneral_wrapper(OAGeneralParams)` | `MyFunc` for the solvers |
+| `OAOrder(state, eta)` | global order parameter, returns `[Re, Im, rho]` |
+| `OAOrderPerCommunity(state)` | per-community magnitudes `rho_c` (size `C`) |
+| `OAOrder(results, eta)` | global order-parameter time series (columns `time, Re, Im, rho`) |
+| `OA_wrapper(OAParams)` | `MyFunc` for the single-community model |
+| `OAGeneral_wrapper(OAGeneralParams)` | `MyFunc` for the multi-community model |
+
+Parameter structs:
+
+```cpp
+struct OAParams        { double gamma; double mu; double K; };
+struct OAGeneralParams { dVec gammas; dVec mus; dVec eta; dMatrix K; int C; };
+```
+
+For the single-community model pass `eta = {1.0}` to the order-parameter helpers.
 
 ## Use cases
 

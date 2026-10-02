@@ -16,7 +16,7 @@ namespace MathEngine
 //  singularity (unlike the polar rho/phi form, whose phase     //
 //  equation diverges as 1/rho as rho -> 0).                    //
 //                                                              //
-//  See OA-Ansatz.md for the derivation.                        //
+//  See docs/models/ott-antonsen.md for the derivation.         //
 //                                                              //
 // ============================================================ //
 
